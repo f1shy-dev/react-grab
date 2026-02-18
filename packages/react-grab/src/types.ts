@@ -233,6 +233,7 @@ export interface ActionContext {
   componentName?: string;
   tagName?: string;
   enterPromptMode?: (agent?: AgentOptions) => void;
+  openRenderScanDetails?: () => Promise<boolean>;
   hooks: ActionContextHooks;
   performWithFeedback: (action: () => Promise<boolean>) => Promise<void>;
   hideContextMenu: () => void;
@@ -490,14 +491,14 @@ export interface ScanCopyPresetModeMap {
   "layout-effects-only": "layout-effects-only";
 }
 
-export interface RenderScanIndicatorSelection {
+export interface RenderScanComponentLookup {
   componentName: string;
-  renderCount: number;
-  anchorX: number;
-  anchorY: number;
+  filePath?: string;
+  lineNumber?: number | null;
 }
 
 export interface RenderScanComponentDetails {
+  componentKey: string;
   componentName: string;
   renderCount: number;
   avgRenderTimeMs: number;
@@ -618,12 +619,9 @@ export interface ReactGrabRendererProps {
   onStopRecording?: () => void;
   onCopyRecording?: (mode: keyof ScanCopyPresetModeMap) => void;
   renderScanDetails?: RenderScanDetailsState | null;
-  onRenderScanIndicatorSelect?: (
-    selection: RenderScanIndicatorSelection,
-  ) => void;
-  onRenderScanIndicatorDismiss?: () => void;
+  onRenderScanDetailsDismiss?: () => void;
   onCopyRenderScanComponent?: (
-    componentName: string,
+    componentKey: string,
     mode: keyof ScanCopyPresetModeMap,
   ) => void;
 }

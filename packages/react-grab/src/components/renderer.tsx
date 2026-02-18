@@ -36,15 +36,11 @@ export const ReactGrabRenderer: Component<ReactGrabRendererProps> = (props) => {
         labelInstances={props.labelInstances}
       />
 
-      <RenderScan
-        enabled={Boolean(props.isRecording)}
-        onIndicatorSelect={props.onRenderScanIndicatorSelect}
-        onIndicatorDismiss={props.onRenderScanIndicatorDismiss}
-      />
+      <RenderScan enabled={Boolean(props.isRecording)} />
 
       <RenderScanDetails
         details={props.renderScanDetails ?? null}
-        onDismiss={props.onRenderScanIndicatorDismiss}
+        onDismiss={props.onRenderScanDetailsDismiss}
         onCopyComponent={props.onCopyRenderScanComponent}
       />
 

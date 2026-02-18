@@ -5,7 +5,6 @@ import { lerp } from "../utils/lerp.js";
 import {
   Z_INDEX_OVERLAY_CANVAS,
   MIN_DEVICE_PIXEL_RATIO,
-  IGNORE_EVENTS_ATTRIBUTE,
   RENDER_SCAN_PRIMARY_COLOR,
   RENDER_SCAN_INTERPOLATION_SPEED,
   RENDER_SCAN_TOTAL_FRAMES,
@@ -14,11 +13,8 @@ import {
   RENDER_SCAN_MONO_FONT,
   RENDER_SCAN_LABEL_FONT_SIZE_PX,
   RENDER_SCAN_LABEL_PADDING_PX,
-  RENDER_SCAN_DETAILS_ATTRIBUTE,
 } from "../constants.js";
 import { setRenderCallback, type PendingRender } from "../utils/scan.js";
-import type { RenderScanIndicatorSelection } from "../types.js";
-import { isEventFromOverlay } from "../utils/is-event-from-overlay.js";
 
 interface AnimatedBox {
   fiberId: number;
@@ -53,20 +49,6 @@ interface LabelInfo {
   x: number;
   y: number;
   boxes: AnimatedBox[];
-}
-
-interface RenderScanIndicatorRegion {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  componentName: string;
-  renderCount: number;
-}
-
-interface RenderScanFrameResult {
-  hasMoreFrames: boolean;
-  indicatorRegions: RenderScanIndicatorRegion[];
 }
 
 let renderBoxIdCounter = 0;
@@ -170,7 +152,7 @@ const drawRenderScanFrame = (
   canvas: HTMLCanvasElement,
   pixelRatio: number,
   animatedBoxes: Map<number, AnimatedBox>,
-): RenderScanFrameResult => {
+): boolean => {
   context.clearRect(
     0,
     0,
@@ -290,8 +272,6 @@ const drawRenderScanFrame = (
     }
   }
 
-  const indicatorRegions: RenderScanIndicatorRegion[] = [];
-
   for (const label of labels.values()) {
     const labelY = Math.max(
       0,
@@ -299,27 +279,6 @@ const drawRenderScanFrame = (
     );
     const labelWidth = label.textWidth + RENDER_SCAN_LABEL_PADDING_PX;
     const labelHeight = label.textHeight + RENDER_SCAN_LABEL_PADDING_PX;
-    const componentCountsByName = new Map<string, number>();
-    for (const box of label.boxes) {
-      componentCountsByName.set(
-        box.componentName,
-        (componentCountsByName.get(box.componentName) || 0) + box.renderCount,
-      );
-    }
-
-    const primaryComponentEntry = [...componentCountsByName.entries()].sort(
-      ([, countA], [, countB]) => countB - countA,
-    )[0];
-    if (primaryComponentEntry) {
-      indicatorRegions.push({
-        x: label.x,
-        y: labelY,
-        width: labelWidth,
-        height: labelHeight,
-        componentName: primaryComponentEntry[0],
-        renderCount: primaryComponentEntry[1],
-      });
-    }
 
     context.fillStyle = `rgba(${RENDER_SCAN_PRIMARY_COLOR},${label.opacity})`;
     context.fillRect(label.x, labelY, labelWidth, labelHeight);
@@ -332,16 +291,11 @@ const drawRenderScanFrame = (
     );
   }
 
-  return {
-    hasMoreFrames: animatedBoxes.size > 0,
-    indicatorRegions,
-  };
+  return animatedBoxes.size > 0;
 };
 
 export interface RenderScanProps {
   enabled?: boolean;
-  onIndicatorSelect?: (selection: RenderScanIndicatorSelection) => void;
-  onIndicatorDismiss?: () => void;
 }
 
 export const RenderScan: Component<RenderScanProps> = (props) => {
@@ -355,7 +309,6 @@ export const RenderScan: Component<RenderScanProps> = (props) => {
   const animatedBoxes = new Map<number, AnimatedBox>();
   const fiberToBoxId = new WeakMap<Fiber, number>();
   const pendingRenderBoxes: RenderBox[] = [];
-  let activeIndicatorRegions: RenderScanIndicatorRegion[] = [];
 
   const getBoxIdForFiber = (fiber: Fiber): number => {
     const existingId = fiberToBoxId.get(fiber);
@@ -373,7 +326,6 @@ export const RenderScan: Component<RenderScanProps> = (props) => {
       canvasRef.width / pixelRatio,
       canvasRef.height / pixelRatio,
     );
-    activeIndicatorRegions = [];
   };
 
   const initializeCanvas = (): void => {
@@ -397,16 +349,13 @@ export const RenderScan: Component<RenderScanProps> = (props) => {
   const renderFrame = (): void => {
     if (!context || !canvasRef) return;
 
-    const frameResult = drawRenderScanFrame(
+    const hasMoreFrames = drawRenderScanFrame(
       context,
       canvasRef,
       pixelRatio,
       animatedBoxes,
     );
-    activeIndicatorRegions = frameResult.hasMoreFrames
-      ? frameResult.indicatorRegions
-      : [];
-    animationFrameId = frameResult.hasMoreFrames
+    animationFrameId = hasMoreFrames
       ? requestAnimationFrame(renderFrame)
       : null;
   };
@@ -458,41 +407,6 @@ export const RenderScan: Component<RenderScanProps> = (props) => {
     }
   };
 
-  const getIndicatorAtPoint = (
-    clientX: number,
-    clientY: number,
-  ): RenderScanIndicatorRegion | undefined =>
-    activeIndicatorRegions.find(
-      (region) =>
-        clientX >= region.x &&
-        clientX <= region.x + region.width &&
-        clientY >= region.y &&
-        clientY <= region.y + region.height,
-    );
-
-  const handleWindowPointerDown = (event: PointerEvent): void => {
-    if (!isEnabled || event.button !== 0) return;
-    if (isEventFromOverlay(event, IGNORE_EVENTS_ATTRIBUTE)) return;
-    if (isEventFromOverlay(event, RENDER_SCAN_DETAILS_ATTRIBUTE)) return;
-
-    const indicatorRegion = getIndicatorAtPoint(event.clientX, event.clientY);
-    if (!indicatorRegion) {
-      props.onIndicatorDismiss?.();
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
-
-    props.onIndicatorSelect?.({
-      componentName: indicatorRegion.componentName,
-      renderCount: indicatorRegion.renderCount,
-      anchorX: indicatorRegion.x + indicatorRegion.width * 0.5,
-      anchorY: indicatorRegion.y + indicatorRegion.height,
-    });
-  };
-
   onMount(() => {
     initializeCanvas();
     setRenderCallback(handleRenders);
@@ -504,9 +418,6 @@ export const RenderScan: Component<RenderScanProps> = (props) => {
     }, RENDER_SCAN_FLUSH_INTERVAL_MS);
 
     window.addEventListener("resize", handleResize);
-    window.addEventListener("pointerdown", handleWindowPointerDown, {
-      capture: true,
-    });
 
     createEffect(
       on(
@@ -517,7 +428,6 @@ export const RenderScan: Component<RenderScanProps> = (props) => {
             pendingRenderBoxes.length = 0;
             animatedBoxes.clear();
             clearCanvas();
-            props.onIndicatorDismiss?.();
             if (animationFrameId !== null) {
               cancelAnimationFrame(animationFrameId);
               animationFrameId = null;
@@ -534,9 +444,6 @@ export const RenderScan: Component<RenderScanProps> = (props) => {
       clearCanvas();
 
       window.removeEventListener("resize", handleResize);
-      window.removeEventListener("pointerdown", handleWindowPointerDown, {
-        capture: true,
-      });
       if (animationFrameId !== null) {
         cancelAnimationFrame(animationFrameId);
       }

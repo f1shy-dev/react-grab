@@ -111,7 +111,6 @@ import type {
   HistoryItem,
   DropdownAnchor,
   ScanCopyPresetModeMap,
-  RenderScanIndicatorSelection,
   RenderScanDetailsState,
 } from "../types.js";
 import { DEFAULT_THEME } from "./theme.js";
@@ -135,6 +134,7 @@ import {
 import { copyPlugin } from "./plugins/copy.js";
 import { commentPlugin } from "./plugins/comment.js";
 import { openPlugin } from "./plugins/open.js";
+import { debugPlugin } from "./plugins/debug.js";
 import {
   freezeAnimations,
   freezeAllAnimations,
@@ -155,7 +155,7 @@ import {
 import { copyContent } from "../utils/copy-content.js";
 import { joinSnippets } from "../utils/join-snippets.js";
 
-const builtInPlugins = [copyPlugin, commentPlugin, openPlugin];
+const builtInPlugins = [copyPlugin, commentPlugin, openPlugin, debugPlugin];
 
 let hasInited = false;
 const toolbarStateChangeCallbacks = new Set<(state: ToolbarState) => void>();
@@ -1704,31 +1704,15 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
       await copyRecording(mode);
     };
 
-    const handleRenderScanIndicatorSelect = (
-      selection: RenderScanIndicatorSelection,
-    ) => {
-      const details = getRenderScanComponentDetails(selection.componentName);
-      if (!details) {
-        setRenderScanDetails(null);
-        return;
-      }
-
-      setRenderScanDetails({
-        anchorX: selection.anchorX,
-        anchorY: selection.anchorY,
-        component: details,
-      });
-    };
-
-    const handleRenderScanIndicatorDismiss = () => {
+    const handleRenderScanDetailsDismiss = () => {
       setRenderScanDetails(null);
     };
 
     const handleCopyRenderScanComponent = async (
-      componentName: string,
+      componentKey: string,
       mode: keyof ScanCopyPresetModeMap,
     ) => {
-      await copyRecording(mode, componentName);
+      await copyRecording(mode, componentKey);
     };
 
     const handlePointerMove = (clientX: number, clientY: number) => {
@@ -3324,6 +3308,9 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
       const hideContextMenuAction = shouldDeferHideContextMenu
         ? deferHideContextMenu
         : actions.hideContextMenu;
+      const canOpenRenderScanDetails = elements.length === 1;
+      const canDebugSelectedComponent =
+        hasLogHistory() && (Boolean(componentName) || Boolean(filePath));
 
       const copyAction = () => {
         onBeforeCopy?.();
@@ -3353,6 +3340,37 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
         hideContextMenuAction();
       };
 
+      const openRenderScanDetails = async (): Promise<boolean> => {
+        if (!canOpenRenderScanDetails) {
+          return false;
+        }
+        if (!hasLogHistory()) {
+          return false;
+        }
+
+        const resolvedComponentName =
+          componentName ?? (await getNearestComponentName(element)) ?? undefined;
+        if (!resolvedComponentName) {
+          return false;
+        }
+
+        const details = getRenderScanComponentDetails({
+          componentName: resolvedComponentName,
+          filePath,
+          lineNumber,
+        });
+        if (!details) {
+          return false;
+        }
+
+        setRenderScanDetails({
+          anchorX: position.x,
+          anchorY: position.y,
+          component: details,
+        });
+        return true;
+      };
+
       const context: ContextMenuActionContext = {
         element,
         elements,
@@ -3361,6 +3379,10 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
         componentName,
         tagName,
         enterPromptMode: customEnterPromptMode ?? defaultEnterPromptMode,
+        openRenderScanDetails:
+          canOpenRenderScanDetails && canDebugSelectedComponent
+          ? openRenderScanDetails
+          : undefined,
         copy: copyAction,
         hooks: {
           transformHtmlContent: pluginRegistry.hooks.transformHtmlContent,
@@ -3995,8 +4017,7 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
             onStopRecording={handleStopRecording}
             onCopyRecording={handleCopyRecording}
             renderScanDetails={renderScanDetails()}
-            onRenderScanIndicatorSelect={handleRenderScanIndicatorSelect}
-            onRenderScanIndicatorDismiss={handleRenderScanIndicatorDismiss}
+            onRenderScanDetailsDismiss={handleRenderScanDetailsDismiss}
             onCopyRenderScanComponent={handleCopyRenderScanComponent}
           />
         );

@@ -57,6 +57,7 @@ import type {
   ComponentStats,
   PerformanceRecommendation,
   RenderScanComponentDetails,
+  RenderScanComponentLookup,
   ScanCopyPresetModeMap,
 } from "../types.js";
 
@@ -79,6 +80,7 @@ interface LogEntry {
 }
 
 interface CopyableComponentEntry {
+  componentKey: string;
   componentName: string;
   stats: ComponentStats;
   totalTime: number;
@@ -505,8 +507,13 @@ const formatRenderLog = (
     }
 
     if (warnings.length > 0) {
+      const componentIdentityKey = createComponentIdentityKey(
+        displayName,
+        getSourceFile(fiber),
+        getLineNumber(fiber),
+      );
       const unstableEntries =
-        unstablePropsPerComponent.get(displayName) || new Set<string>();
+        unstablePropsPerComponent.get(componentIdentityKey) || new Set<string>();
       for (const functionName of unstableInfo.unstableFunctions) {
         unstableEntries.add(`${functionName}(fn)`);
       }
@@ -519,7 +526,7 @@ const formatRenderLog = (
       for (const stateIndex of unstableInfo.unstableState) {
         unstableEntries.add(`state[${stateIndex}]`);
       }
-      unstablePropsPerComponent.set(displayName, unstableEntries);
+      unstablePropsPerComponent.set(componentIdentityKey, unstableEntries);
     }
   }
   const warningText = warnings.length > 0 ? ` ⚠️ ${warnings.join(", ")}` : "";
@@ -567,6 +574,74 @@ const getSourceFile = (fiber: Fiber): string | null => {
 const getLineNumber = (fiber: Fiber): number => {
   const debugSource = fiber._debugSource;
   return debugSource?.lineNumber ?? 0;
+};
+
+const createComponentIdentityKey = (
+  componentName: string,
+  sourceFile?: string | null,
+  lineNumber?: number | null,
+): string => {
+  const normalizedSourceFile = sourceFile ?? "";
+  const normalizedLineNumber = lineNumber ?? 0;
+  return `${componentName}::${normalizedSourceFile}::${normalizedLineNumber}`;
+};
+
+const createComponentIdentityKeyFromComponent = (
+  component: ComponentIdentity,
+): string =>
+  createComponentIdentityKey(
+    component.displayName,
+    component.source?.filePath,
+    component.source?.lineNumber,
+  );
+
+const getBestMatchingComponentKey = (
+  componentStats: Map<string, ComponentStats>,
+  lookup: RenderScanComponentLookup,
+): string | null => {
+  const exactMatches = [...componentStats.entries()].filter(([, stats]) => {
+    const source = stats.component.source;
+    const didNameMatch = stats.component.displayName === lookup.componentName;
+    if (!didNameMatch) {
+      return false;
+    }
+    if (!lookup.filePath) {
+      return true;
+    }
+    if (!source) {
+      return false;
+    }
+    if (source.filePath !== lookup.filePath) {
+      return false;
+    }
+    if (lookup.lineNumber === null || lookup.lineNumber === undefined) {
+      return true;
+    }
+    return source.lineNumber === lookup.lineNumber;
+  });
+
+  if (exactMatches.length > 0) {
+    const exactMatch = exactMatches.sort(
+      ([, statsA], [, statsB]) =>
+        statsB.totalRenderTime + statsB.totalEffectTime -
+        (statsA.totalRenderTime + statsA.totalEffectTime),
+    )[0];
+    return exactMatch[0];
+  }
+
+  const nameOnlyMatches = [...componentStats.entries()].filter(([, stats]) => {
+    return stats.component.displayName === lookup.componentName;
+  });
+  if (nameOnlyMatches.length === 0) {
+    return null;
+  }
+
+  const strongestNameMatch = nameOnlyMatches.sort(
+    ([, statsA], [, statsB]) =>
+      statsB.totalRenderTime + statsB.totalEffectTime -
+      (statsA.totalRenderTime + statsA.totalEffectTime),
+  )[0];
+  return strongestNameMatch[0];
 };
 
 const trackFiberRender = (fiber: Fiber, phase: string): void => {
@@ -864,19 +939,20 @@ const serializeDiagnostic = (diagnostic: PerformanceDiagnostic): string => {
   return JSON.stringify(serializable, null, 2);
 };
 
-const getUnstablePropsForComponent = (componentName: string): string[] =>
-  Array.from(unstablePropsPerComponent.get(componentName) ?? []).sort();
+const getUnstablePropsForComponent = (componentKey: string): string[] =>
+  Array.from(unstablePropsPerComponent.get(componentKey) ?? []).sort();
 
 const getCopyableComponentEntries = (
   diagnostic: PerformanceDiagnostic,
 ): CopyableComponentEntry[] => {
   const componentEntries = Array.from(diagnostic.componentStats.entries());
 
-  return componentEntries.map(([componentName, stats]) => ({
-    componentName,
+  return componentEntries.map(([componentKey, stats]) => ({
+    componentKey,
+    componentName: stats.component.displayName,
     stats,
     totalTime: stats.totalRenderTime + stats.totalEffectTime,
-    unstableProps: getUnstablePropsForComponent(componentName),
+    unstableProps: getUnstablePropsForComponent(componentKey),
   }));
 };
 
@@ -1028,25 +1104,27 @@ const formatComponentLine = (entry: CopyableComponentEntry): string => {
 
 export const copyRecording = async (
   mode: keyof ScanCopyPresetModeMap = "issues",
-  componentName?: string,
+  componentKey?: string,
 ): Promise<boolean> => {
   const diagnostic = getPerformanceDiagnostic();
   const allEntries = getCopyableComponentEntries(diagnostic);
   const selectedEntries = selectEntriesByMode(mode, allEntries);
-  const scopedEntries = componentName
-    ? selectedEntries.filter((entry) => entry.componentName === componentName)
+  const scopedEntries = componentKey
+    ? selectedEntries.filter((entry) => entry.componentKey === componentKey)
     : selectedEntries;
+  const scopedComponentName =
+    scopedEntries[0]?.componentName ?? "selected component";
 
   const componentLines = scopedEntries.map((entry) => formatComponentLine(entry));
 
   let outputText: string;
   if (componentLines.length === 0) {
-    outputText = componentName
-      ? `React Grab found no ${getModeName(mode)} data for ${componentName}.`
+    outputText = componentKey
+      ? `React Grab found no ${getModeName(mode)} data for ${scopedComponentName}.`
       : getModeEmptyState(mode);
   } else {
-    const heading = componentName
-      ? `${getModeHeading(mode).replace(/:$/, "")} (${componentName}):`
+    const heading = componentKey
+      ? `${getModeHeading(mode).replace(/:$/, "")} (${scopedComponentName}):`
       : getModeHeading(mode);
     outputText = `${heading}\n\n${componentLines.join("\n")}`;
   }
@@ -1067,22 +1145,30 @@ export const copyDiagnosticJson = async (): Promise<void> => {
 };
 
 export const getRenderScanComponentDetails = (
-  componentName: string,
+  lookup: RenderScanComponentLookup,
 ): RenderScanComponentDetails | null => {
   const diagnostic = getPerformanceDiagnostic();
-  const stats = diagnostic.componentStats.get(componentName);
+  const componentKey = getBestMatchingComponentKey(
+    diagnostic.componentStats,
+    lookup,
+  );
+  if (!componentKey) {
+    return null;
+  }
+  const stats = diagnostic.componentStats.get(componentKey);
   if (!stats) {
     return null;
   }
 
   return {
-    componentName,
+    componentKey,
+    componentName: stats.component.displayName,
     renderCount: stats.renderCount,
     avgRenderTimeMs: stats.avgRenderTime,
     maxRenderTimeMs: stats.maxRenderTime,
     totalEffectTimeMs: stats.totalEffectTime,
     totalLayoutEffectTimeMs: stats.totalLayoutEffectTime,
-    unstableProps: getUnstablePropsForComponent(componentName),
+    unstableProps: getUnstablePropsForComponent(componentKey),
     source: stats.component.source,
   };
 };
@@ -1268,7 +1354,7 @@ const aggregateByComponent = (
 
   for (const frame of frames) {
     for (const render of frame.renders) {
-      const key = render.component.displayName;
+      const key = createComponentIdentityKeyFromComponent(render.component);
       const existing = stats.get(key);
 
       if (existing) {
@@ -1301,7 +1387,7 @@ const aggregateByComponent = (
     }
 
     for (const effect of frame.effects) {
-      const key = effect.component.displayName;
+      const key = createComponentIdentityKeyFromComponent(effect.component);
       const existing = stats.get(key);
       const isLayoutEffect = effect.effectType === "layout";
 
@@ -1347,7 +1433,8 @@ const generateRecommendations = (
   const VERY_SLOW_EFFECT_THRESHOLD_MS = 30;
   const MIN_OCCURRENCES_FOR_RECOMMENDATION = 2;
 
-  for (const [componentName, stats] of componentStats) {
+  for (const stats of componentStats.values()) {
+    const componentName = stats.component.displayName;
     const hasSlowRenders =
       stats.maxRenderTime > SLOW_RENDER_THRESHOLD_MS &&
       stats.renderCount >= MIN_OCCURRENCES_FOR_RECOMMENDATION;

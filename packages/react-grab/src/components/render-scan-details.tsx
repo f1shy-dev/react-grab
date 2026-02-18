@@ -6,6 +6,7 @@ import type {
 } from "../types.js";
 import {
   PANEL_STYLES,
+  RENDER_SCAN_DETAILS_ATTRIBUTE,
   RENDER_SCAN_DETAILS_ESTIMATED_HEIGHT_PX,
   RENDER_SCAN_DETAILS_MAX_WIDTH_PX,
   RENDER_SCAN_DETAILS_MIN_WIDTH_PX,
@@ -15,12 +16,13 @@ import {
 } from "../constants.js";
 import { cn } from "../utils/cn.js";
 import { clampToViewport } from "../utils/clamp-to-viewport.js";
+import { isEventFromOverlay } from "../utils/is-event-from-overlay.js";
 
 interface RenderScanDetailsProps {
   details: RenderScanDetailsState | null;
   onDismiss?: () => void;
   onCopyComponent?: (
-    componentName: string,
+    componentKey: string,
     mode: keyof ScanCopyPresetModeMap,
   ) => void;
 }
@@ -78,10 +80,21 @@ export const RenderScanDetails: Component<RenderScanDetailsProps> = (props) => {
       event.stopPropagation();
       props.onDismiss?.();
     };
+    const handleOutsideMouseDown = (event: MouseEvent) => {
+      if (!props.details) return;
+      if (isEventFromOverlay(event, RENDER_SCAN_DETAILS_ATTRIBUTE)) return;
+      props.onDismiss?.();
+    };
 
     window.addEventListener("keydown", handleEscape, { capture: true });
+    window.addEventListener("mousedown", handleOutsideMouseDown, {
+      capture: true,
+    });
     onCleanup(() => {
       window.removeEventListener("keydown", handleEscape, { capture: true });
+      window.removeEventListener("mousedown", handleOutsideMouseDown, {
+        capture: true,
+      });
     });
   });
 
@@ -160,7 +173,7 @@ export const RenderScanDetails: Component<RenderScanDetailsProps> = (props) => {
                 event.preventDefault();
                 event.stopPropagation();
                 props.onCopyComponent?.(
-                  details().component.componentName,
+                  details().component.componentKey,
                   "issues",
                 );
               }}
@@ -174,7 +187,7 @@ export const RenderScanDetails: Component<RenderScanDetailsProps> = (props) => {
               onMouseDown={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                props.onCopyComponent?.(details().component.componentName, "all");
+                props.onCopyComponent?.(details().component.componentKey, "all");
               }}
             >
               Copy all
@@ -187,7 +200,7 @@ export const RenderScanDetails: Component<RenderScanDetailsProps> = (props) => {
                 event.preventDefault();
                 event.stopPropagation();
                 props.onCopyComponent?.(
-                  details().component.componentName,
+                  details().component.componentKey,
                   "unstable-props-only",
                 );
               }}
@@ -202,7 +215,7 @@ export const RenderScanDetails: Component<RenderScanDetailsProps> = (props) => {
                 event.preventDefault();
                 event.stopPropagation();
                 props.onCopyComponent?.(
-                  details().component.componentName,
+                  details().component.componentKey,
                   "layout-effects-only",
                 );
               }}
