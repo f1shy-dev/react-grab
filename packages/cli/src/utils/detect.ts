@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { detect } from "@antfu/ni";
+import ignore from "ignore";
 
 export type PackageManager = "npm" | "yarn" | "pnpm" | "bun";
 export type Framework = "next" | "vite" | "tanstack" | "webpack" | "unknown";
@@ -24,12 +25,23 @@ export interface ProjectInfo {
   unsupportedFramework: UnsupportedFramework;
 }
 
+const VALID_PACKAGE_MANAGERS: ReadonlySet<string> = new Set([
+  "npm",
+  "yarn",
+  "pnpm",
+  "bun",
+]);
+
 export const detectPackageManager = async (
   projectRoot: string,
 ): Promise<PackageManager> => {
   const detected = await detect({ cwd: projectRoot });
-  if (detected && ["npm", "yarn", "pnpm", "bun"].includes(detected)) {
-    return detected as PackageManager;
+  if (detected) {
+    // @antfu/ni returns versioned agents like "pnpm@6" or "yarn@berry"
+    const managerName = detected.split("@")[0];
+    if (VALID_PACKAGE_MANAGERS.has(managerName)) {
+      return managerName as PackageManager;
+    }
   }
   return "npm";
 };
@@ -174,26 +186,30 @@ const expandWorkspacePattern = (
   projectRoot: string,
   pattern: string,
 ): string[] => {
-  const results: string[] = [];
+  const isGlob = pattern.endsWith("/*");
   const cleanPattern = pattern.replace(/\/\*$/, "");
   const basePath = join(projectRoot, cleanPattern);
 
-  if (!existsSync(basePath)) return results;
+  if (!existsSync(basePath)) return [];
 
+  if (!isGlob) {
+    const hasPackageJson = existsSync(join(basePath, "package.json"));
+    return hasPackageJson ? [basePath] : [];
+  }
+
+  const results: string[] = [];
   try {
     const entries = readdirSync(basePath, { withFileTypes: true });
     for (const entry of entries) {
-      if (entry.isDirectory()) {
-        const packageJsonPath = join(basePath, entry.name, "package.json");
-        if (existsSync(packageJsonPath)) {
-          results.push(join(basePath, entry.name));
-        }
+      if (!entry.isDirectory()) continue;
+      const packageJsonPath = join(basePath, entry.name, "package.json");
+      if (existsSync(packageJsonPath)) {
+        results.push(join(basePath, entry.name));
       }
     }
   } catch {
     return results;
   }
-
   return results;
 };
 
@@ -213,50 +229,111 @@ const hasReactDependency = (projectPath: string): boolean => {
   }
 };
 
-export const findWorkspaceProjects = (
-  projectRoot: string,
-): WorkspaceProject[] => {
+const buildReactProject = (projectPath: string): WorkspaceProject | null => {
+  const framework = detectFramework(projectPath);
+  const hasReact = hasReactDependency(projectPath);
+  if (!hasReact && framework === "unknown") return null;
+
+  let name = basename(projectPath);
+  const packageJsonPath = join(projectPath, "package.json");
+  try {
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+    name = packageJson.name || name;
+  } catch {}
+
+  return { name, path: projectPath, framework, hasReact };
+};
+
+const findWorkspaceProjects = (projectRoot: string): WorkspaceProject[] => {
   const patterns = getWorkspacePatterns(projectRoot);
   const projects: WorkspaceProject[] = [];
 
   for (const pattern of patterns) {
-    const projectPaths = expandWorkspacePattern(projectRoot, pattern);
-    for (const projectPath of projectPaths) {
-      const framework = detectFramework(projectPath);
-      const hasReact = hasReactDependency(projectPath);
-
-      if (hasReact || framework !== "unknown") {
-        const packageJsonPath = join(projectPath, "package.json");
-        let name = basename(projectPath);
-        try {
-          const packageJson = JSON.parse(
-            readFileSync(packageJsonPath, "utf-8"),
-          );
-          name = packageJson.name || name;
-        } catch {}
-
-        projects.push({
-          name,
-          path: projectPath,
-          framework,
-          hasReact,
-        });
-      }
+    for (const projectPath of expandWorkspacePattern(projectRoot, pattern)) {
+      const project = buildReactProject(projectPath);
+      if (project) projects.push(project);
     }
   }
 
   return projects;
 };
 
-const REACT_GRAB_DETECTION_PATTERNS: RegExp[] = [
-  /["'`][^"'`]*react-grab/,
-  /react-grab[^"'`]*["'`]/,
-  /<[^>]*react-grab/i,
-  /import[^;]*react-grab/i,
-  /require[^)]*react-grab/i,
-  /from\s+[^;]*react-grab/i,
-  /src[^>]*react-grab/i,
+const ALWAYS_IGNORED_DIRECTORIES = [
+  "node_modules",
+  ".git",
+  ".next",
+  ".cache",
+  ".turbo",
+  "dist",
+  "build",
+  "coverage",
+  "test-results",
 ];
+
+const loadGitignore = (projectRoot: string): ReturnType<typeof ignore> => {
+  const ignorer = ignore().add(ALWAYS_IGNORED_DIRECTORIES);
+  const gitignorePath = join(projectRoot, ".gitignore");
+  if (existsSync(gitignorePath)) {
+    try {
+      ignorer.add(readFileSync(gitignorePath, "utf-8"));
+    } catch {}
+  }
+  return ignorer;
+};
+
+const scanDirectoryForProjects = (
+  rootDirectory: string,
+  ignorer: ReturnType<typeof ignore>,
+  maxDepth: number,
+  currentDepth: number = 0,
+): WorkspaceProject[] => {
+  if (currentDepth >= maxDepth) return [];
+  if (!existsSync(rootDirectory)) return [];
+
+  const projects: WorkspaceProject[] = [];
+
+  try {
+    const entries = readdirSync(rootDirectory, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (ignorer.ignores(entry.name)) continue;
+
+      const entryPath = join(rootDirectory, entry.name);
+      const hasPackageJson = existsSync(join(entryPath, "package.json"));
+
+      if (hasPackageJson) {
+        const project = buildReactProject(entryPath);
+        if (project) {
+          projects.push(project);
+          continue;
+        }
+      }
+
+      projects.push(
+        ...scanDirectoryForProjects(
+          entryPath,
+          ignorer,
+          maxDepth,
+          currentDepth + 1,
+        ),
+      );
+    }
+  } catch {
+    return projects;
+  }
+
+  return projects;
+};
+
+const MAX_SCAN_DEPTH = 2;
+
+export const findReactProjects = (projectRoot: string): WorkspaceProject[] => {
+  if (detectMonorepo(projectRoot)) {
+    return findWorkspaceProjects(projectRoot);
+  }
+  const ignorer = loadGitignore(projectRoot);
+  return scanDirectoryForProjects(projectRoot, ignorer, MAX_SCAN_DEPTH);
+};
 
 const CONFIG_FILE_PATTERNS: readonly (readonly string[])[] = [
   ["app", "layout"],
@@ -301,6 +378,25 @@ const hasPatternInFile = (filePath: string, patterns: RegExp[]): boolean => {
   }
 };
 
+const hasReactGrabInFile = (filePath: string): boolean => {
+  if (!existsSync(filePath)) return false;
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    const fuzzyPatterns = [
+      /["'`][^"'`]*react-grab/,
+      /react-grab[^"'`]*["'`]/,
+      /<[^>]*react-grab/i,
+      /import[^;]*react-grab/i,
+      /require[^)]*react-grab/i,
+      /from\s+[^;]*react-grab/i,
+      /src[^>]*react-grab/i,
+    ];
+    return fuzzyPatterns.some((pattern) => pattern.test(content));
+  } catch {
+    return false;
+  }
+};
+
 export const detectReactGrab = (projectRoot: string): boolean => {
   const packageJsonPath = join(projectRoot, "package.json");
 
@@ -317,21 +413,31 @@ export const detectReactGrab = (projectRoot: string): boolean => {
     } catch {}
   }
 
-  return getConfigFilesToCheck(projectRoot).some((file) =>
-    hasPatternInFile(file, REACT_GRAB_DETECTION_PATTERNS),
-  );
-};
+  const filesToCheck = [
+    join(projectRoot, "app", "layout.tsx"),
+    join(projectRoot, "app", "layout.jsx"),
+    join(projectRoot, "src", "app", "layout.tsx"),
+    join(projectRoot, "src", "app", "layout.jsx"),
+    join(projectRoot, "pages", "_document.tsx"),
+    join(projectRoot, "pages", "_document.jsx"),
+    join(projectRoot, "instrumentation-client.ts"),
+    join(projectRoot, "instrumentation-client.js"),
+    join(projectRoot, "src", "instrumentation-client.ts"),
+    join(projectRoot, "src", "instrumentation-client.js"),
+    join(projectRoot, "index.html"),
+    join(projectRoot, "public", "index.html"),
+    join(projectRoot, "src", "index.tsx"),
+    join(projectRoot, "src", "index.ts"),
+    join(projectRoot, "src", "main.tsx"),
+    join(projectRoot, "src", "main.ts"),
+    join(projectRoot, "src", "routes", "__root.tsx"),
+    join(projectRoot, "src", "routes", "__root.jsx"),
+    join(projectRoot, "app", "routes", "__root.tsx"),
+    join(projectRoot, "app", "routes", "__root.jsx"),
+  ];
 
-const AGENT_PACKAGES = [
-  "@react-grab/claude-code",
-  "@react-grab/cursor",
-  "@react-grab/opencode",
-  "@react-grab/codex",
-  "@react-grab/gemini",
-  "@react-grab/amp",
-  "@react-grab/ami",
-  "@react-grab/mcp",
-];
+  return filesToCheck.some(hasReactGrabInFile);
+};
 
 export const REACT_SCAN_DETECTION_PATTERNS: RegExp[] = [
   /["'`][^"'`]*react-scan/,
@@ -390,6 +496,19 @@ export const detectReactScan = (projectRoot: string): ReactScanInfo => {
 
   return result;
 };
+
+const AGENT_PACKAGES = [
+  "@react-grab/claude-code",
+  "@react-grab/cursor",
+  "@react-grab/opencode",
+  "@react-grab/codex",
+  "@react-grab/gemini",
+  "@react-grab/amp",
+  "@react-grab/ami",
+  "@react-grab/droid",
+  "@react-grab/copilot",
+  "@react-grab/mcp",
+];
 
 export const detectUnsupportedFramework = (
   projectRoot: string,
@@ -457,7 +576,9 @@ export type AgentCLI =
   | "opencode"
   | "codex"
   | "gemini"
-  | "amp";
+  | "amp"
+  | "copilot"
+  | "droid";
 
 const AGENT_CLI_COMMANDS: AgentCLI[] = [
   "claude",
@@ -466,6 +587,8 @@ const AGENT_CLI_COMMANDS: AgentCLI[] = [
   "codex",
   "gemini",
   "amp",
+  "copilot",
+  "droid",
 ];
 
 const isCommandAvailable = (command: string): boolean => {

@@ -98,6 +98,13 @@ export interface ReactGrabState {
     bounds: OverlayBounds;
     createdAt: number;
   }>;
+  labelInstances: Array<{
+    id: string;
+    status: SelectionLabelStatus;
+    tagName: string;
+    componentName?: string;
+    createdAt: number;
+  }>;
   selectionFilePath: string | null;
   toolbarState: ToolbarState | null;
 }
@@ -241,6 +248,7 @@ export interface ContextMenuActionContext extends ActionContext {
 export interface ContextMenuAction {
   id: string;
   label: string;
+  target?: "context-menu";
   shortcut?: string;
   enabled?: boolean | ((context: ActionContext) => boolean);
   onAction: (context: ContextMenuActionContext) => void | Promise<void>;
@@ -335,10 +343,21 @@ export interface PluginHooks {
   ) => string | Promise<string>;
 }
 
+export interface ToolbarMenuAction {
+  id: string;
+  label: string;
+  target: "toolbar";
+  enabled?: boolean | (() => boolean);
+  isActive?: () => boolean;
+  onAction: () => void | Promise<void>;
+}
+
+export type PluginAction = ContextMenuAction | ToolbarMenuAction;
+
 export interface PluginConfig {
   theme?: DeepPartial<Theme>;
   options?: SettableOptions;
-  actions?: ContextMenuAction[];
+  actions?: PluginAction[];
   hooks?: PluginHooks;
   cleanup?: () => void;
 }
@@ -347,7 +366,7 @@ export interface Plugin {
   name: string;
   theme?: DeepPartial<Theme>;
   options?: SettableOptions;
-  actions?: ContextMenuAction[];
+  actions?: PluginAction[];
   hooks?: PluginHooks;
   setup?: (api: ReactGrabAPI) => PluginConfig | void;
 }
@@ -378,15 +397,18 @@ export interface SourceInfo {
   componentName: string | null;
 }
 
-export type ToolbarMode = "off" | "select" | "scan";
-
-export type SelectionMode = "inactive" | "select" | "comment";
-
 export interface ToolbarState {
   edge: "top" | "bottom" | "left" | "right";
   ratio: number;
   collapsed: boolean;
-  mode: ToolbarMode;
+  enabled: boolean;
+}
+
+export interface DropdownAnchor {
+  x: number;
+  y: number;
+  edge: ToolbarState["edge"];
+  toolbarWidth: number;
 }
 
 export interface ReactGrabAPI {
@@ -432,7 +454,11 @@ export interface SelectionLabelInstance {
   boundsMultiple?: OverlayBounds[];
   tagName: string;
   componentName?: string;
+  elementsCount?: number;
   status: SelectionLabelStatus;
+  statusText?: string;
+  isPromptMode?: boolean;
+  inputValue?: string;
   createdAt: number;
   element?: Element;
   elements?: Element[];
@@ -440,6 +466,20 @@ export interface SelectionLabelInstance {
   mouseXOffsetFromCenter?: number;
   mouseXOffsetRatio?: number;
   errorMessage?: string;
+  hideArrow?: boolean;
+}
+
+export interface HistoryItem {
+  id: string;
+  content: string;
+  elementName: string;
+  tagName: string;
+  componentName?: string;
+  elementsCount?: number;
+  previewBounds?: OverlayBounds[];
+  isComment: boolean;
+  commentText?: string;
+  timestamp: number;
 }
 
 export interface ReactGrabRendererProps {
@@ -497,38 +537,56 @@ export interface ReactGrabRendererProps {
   pendingAbortSessionId?: string | null;
   theme?: Required<Theme>;
   toolbarVisible?: boolean;
-  selectionMode?: SelectionMode;
+  isActive?: boolean;
+  isCommentMode?: boolean;
   onToggleActive?: () => void;
   onComment?: () => void;
-  toolbarMode?: ToolbarMode;
-  onToolbarModeChange?: (mode: ToolbarMode) => void;
-  isRecording?: boolean;
-  hasRecordedData?: boolean;
-  onStartRecording?: () => void;
-  onStopRecording?: () => void;
-  onCopyRecording?: () => void;
+  enabled?: boolean;
+  onToggleEnabled?: () => void;
   shakeCount?: number;
   onToolbarStateChange?: (state: ToolbarState) => void;
   onSubscribeToToolbarStateChanges?: (
     callback: (state: ToolbarState) => void,
   ) => () => void;
   onToolbarSelectHoverChange?: (isHovered: boolean) => void;
+  onToolbarRef?: (element: HTMLDivElement) => void;
   contextMenuPosition?: { x: number; y: number } | null;
   contextMenuBounds?: OverlayBounds | null;
   contextMenuTagName?: string;
   contextMenuComponentName?: string;
   contextMenuHasFilePath?: boolean;
   actions?: ContextMenuAction[];
+  toolbarActions?: ToolbarMenuAction[];
   actionContext?: ActionContext;
   onContextMenuDismiss?: () => void;
   onContextMenuHide?: () => void;
+  historyItems?: HistoryItem[];
+  historyDisconnectedItemIds?: Set<string>;
+  historyItemCount?: number;
+  hasUnreadHistoryItems?: boolean;
+  historyDropdownPosition?: DropdownAnchor | null;
+  isHistoryPinned?: boolean;
+  onToggleHistory?: () => void;
+  onHistoryButtonHover?: (isHovered: boolean) => void;
+  onHistoryItemSelect?: (item: HistoryItem) => void;
+  onHistoryItemRemove?: (item: HistoryItem) => void;
+  onHistoryItemCopy?: (item: HistoryItem) => void;
+  onHistoryItemHover?: (historyItemId: string | null) => void;
+  onHistoryCopyAll?: () => void;
+  onHistoryCopyAllHover?: (isHovered: boolean) => void;
+  onHistoryClear?: () => void;
+  onHistoryDismiss?: () => void;
+  onHistoryDropdownHover?: (isHovered: boolean) => void;
+  toolbarMenuPosition?: DropdownAnchor | null;
+  onToggleMenu?: () => void;
+  onToolbarMenuDismiss?: () => void;
 }
 
 export interface GrabbedBox {
   id: string;
   bounds: OverlayBounds;
   createdAt: number;
-  element: Element;
+  element?: Element;
 }
 
 export interface Rect {
@@ -636,6 +694,7 @@ export interface SelectionLabelProps {
   isContextMenuOpen?: boolean;
   onShowContextMenu?: () => void;
   onHoverChange?: (isHovered: boolean) => void;
+  hideArrow?: boolean;
 }
 
 export interface SourceLocation {

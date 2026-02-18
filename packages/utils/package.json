@@ -1,16 +1,11 @@
 {
   "name": "@react-grab/utils",
-  "version": "0.1.13",
+  "version": "0.1.16",
   "files": [
     "dist"
   ],
   "type": "module",
   "exports": {
-    "./client": {
-      "types": "./dist/client.d.ts",
-      "import": "./dist/client.js",
-      "require": "./dist/client.cjs"
-    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",

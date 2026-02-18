@@ -10,6 +10,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 4 : undefined,
+  timeout: 60_000,
   reporter: "html",
   use: {
     baseURL: "http://localhost:5175",
@@ -32,7 +33,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm dev",
+    command: "pnpm --filter react-grab build && pnpm dev",
     url: "http://localhost:5175",
     reuseExistingServer: !process.env.CI,
     cwd: path.resolve(__dirname, "../e2e-playground"),

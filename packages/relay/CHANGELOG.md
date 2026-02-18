@@ -1,5 +1,29 @@
 # @react-grab/relay
 
+## 0.1.16
+
+### Patch Changes
+
+- fix: environment detection
+- Updated dependencies
+  - @react-grab/utils@0.1.16
+
+## 0.1.15
+
+### Patch Changes
+
+- fix: animations and ux
+- Updated dependencies
+  - @react-grab/utils@0.1.15
+
+## 0.1.14
+
+### Patch Changes
+
+- fix: improve recent UX
+- Updated dependencies
+  - @react-grab/utils@0.1.14
+
 ## 0.1.13
 
 ### Patch Changes

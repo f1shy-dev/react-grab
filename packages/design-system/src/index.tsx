@@ -5,16 +5,18 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { SelectionLabel } from "react-grab/src/components/selection-label/index.js";
 import { ContextMenu } from "react-grab/src/components/context-menu.js";
 import { ToolbarContent } from "react-grab/src/components/toolbar/toolbar-content.js";
-import { ModeSelector } from "react-grab/src/components/toolbar/index.js";
-import { IconCopy } from "react-grab/src/components/icons/icon-copy.jsx";
+import { HistoryDropdown } from "react-grab/src/components/history-dropdown.js";
+import {
+  IconInbox,
+  IconInboxUnread,
+} from "react-grab/src/components/icons/icon-inbox.js";
 import type {
   OverlayBounds,
   SelectionLabelStatus,
-  SelectionMode,
-  ToolbarMode,
+  HistoryItem,
 } from "react-grab/src/types.js";
 
-type ComponentType = "label" | "context-menu" | "toolbar";
+type ComponentType = "label" | "context-menu" | "toolbar" | "history-dropdown";
 
 interface DesignSystemStateProps {
   tagName?: string;
@@ -47,10 +49,9 @@ interface DesignSystemStateProps {
   isToolbarEnabled?: boolean;
   isToolbarCollapsed?: boolean;
   toolbarSnapEdge?: "top" | "bottom" | "left" | "right";
-  toolbarMode?: "off" | "select" | "scan";
-  hasPerformanceMode?: boolean;
-  isRecording?: boolean;
-  hasRecordedData?: boolean;
+  toolbarHistoryItemCount?: number;
+  toolbarHasUnreadHistoryItems?: boolean;
+  historyItems?: HistoryItem[];
 }
 
 interface AnimationFrame {
@@ -828,6 +829,7 @@ const DESIGN_SYSTEM_STATES: DesignSystemState[] = [
     props: {
       isToolbarActive: true,
       isToolbarEnabled: true,
+      toolbarHistoryItemCount: 3,
     },
   },
   {
@@ -909,62 +911,276 @@ const DESIGN_SYSTEM_STATES: DesignSystemState[] = [
       toolbarSnapEdge: "right",
     },
   },
+  {
+    id: "toolbar-history-read",
+    label: "Toolbar (History Read)",
+    description: "Inbox icon, no unread items",
+    component: "toolbar",
+    props: {
+      isToolbarActive: true,
+      isToolbarEnabled: true,
+      toolbarHistoryItemCount: 5,
+      toolbarHasUnreadHistoryItems: false,
+    },
+  },
+  {
+    id: "toolbar-history-unread",
+    label: "Toolbar (History Unread)",
+    description: "Inbox icon with unread indicator",
+    component: "toolbar",
+    props: {
+      isToolbarActive: true,
+      isToolbarEnabled: true,
+      toolbarHistoryItemCount: 3,
+      toolbarHasUnreadHistoryItems: true,
+    },
+  },
 
-  // === TOOLBAR MODE STATES ===
+  // ══════════════════════════════════════════════════════════════════════════
+  // HISTORY DROPDOWN STATES
+  // ══════════════════════════════════════════════════════════════════════════
   {
-    id: "toolbar-mode-off",
-    label: "Toolbar (Off)",
-    description: "Mode switch at Off position",
-    component: "toolbar",
+    id: "history-empty",
+    label: "History (Empty)",
+    description: "No copied elements yet",
+    component: "history-dropdown",
     props: {
-      toolbarMode: "off",
-      hasPerformanceMode: true,
+      historyItems: [],
     },
   },
   {
-    id: "toolbar-mode-select",
-    label: "Toolbar (Select)",
-    description: "Mode switch at Select position",
-    component: "toolbar",
+    id: "history-single-item",
+    label: "History (Single Item)",
+    description: "One copied element",
+    component: "history-dropdown",
     props: {
-      toolbarMode: "select",
-      hasPerformanceMode: true,
+      historyItems: [
+        {
+          id: "history-1",
+          content: "<Button />",
+          elementName: "Button",
+          tagName: "button",
+          componentName: "Button",
+          isComment: false,
+          timestamp: Date.now() - 30_000,
+        },
+      ],
     },
   },
   {
-    id: "toolbar-mode-scan",
-    label: "Toolbar (Scan)",
-    description: "Scan mode with play button",
-    component: "toolbar",
+    id: "history-multiple-items",
+    label: "History (Multiple Items)",
+    description: "Several copied elements",
+    component: "history-dropdown",
     props: {
-      toolbarMode: "scan",
-      hasPerformanceMode: true,
-      isRecording: false,
-      hasRecordedData: false,
+      historyItems: [
+        {
+          id: "history-1",
+          content: "<Header />",
+          elementName: "Header",
+          tagName: "header",
+          componentName: "Header",
+          isComment: false,
+          timestamp: Date.now() - 15_000,
+        },
+        {
+          id: "history-2",
+          content: "<Navigation />",
+          elementName: "Navigation",
+          tagName: "nav",
+          componentName: "Navigation",
+          isComment: false,
+          timestamp: Date.now() - 120_000,
+        },
+        {
+          id: "history-3",
+          content: "<Footer />",
+          elementName: "Footer",
+          tagName: "footer",
+          componentName: "Footer",
+          isComment: false,
+          timestamp: Date.now() - 3_600_000,
+        },
+      ],
     },
   },
   {
-    id: "toolbar-mode-scan-recording",
-    label: "Toolbar (Scan Recording)",
-    description: "Scan mode while recording",
-    component: "toolbar",
+    id: "history-with-comments",
+    label: "History (With Comments)",
+    description: "Items with comment annotations",
+    component: "history-dropdown",
     props: {
-      toolbarMode: "scan",
-      hasPerformanceMode: true,
-      isRecording: true,
-      hasRecordedData: false,
+      historyItems: [
+        {
+          id: "history-1",
+          content: "<Card />",
+          elementName: "Card",
+          tagName: "div",
+          componentName: "Card",
+          isComment: true,
+          commentText: "make it bigger",
+          timestamp: Date.now() - 10_000,
+        },
+        {
+          id: "history-2",
+          content: "<Sidebar />",
+          elementName: "Sidebar",
+          tagName: "aside",
+          componentName: "Sidebar",
+          isComment: true,
+          commentText: "add dark mode support",
+          timestamp: Date.now() - 300_000,
+        },
+        {
+          id: "history-3",
+          content: "<Button />",
+          elementName: "Button",
+          tagName: "button",
+          componentName: "Button",
+          isComment: false,
+          timestamp: Date.now() - 7_200_000,
+        },
+      ],
     },
   },
   {
-    id: "toolbar-mode-scan-recorded",
-    label: "Toolbar (Scan Recorded)",
-    description: "Scan mode with recorded data",
-    component: "toolbar",
+    id: "history-tag-only",
+    label: "History (Tag Only)",
+    description: "Items without component names",
+    component: "history-dropdown",
     props: {
-      toolbarMode: "scan",
-      hasPerformanceMode: true,
-      isRecording: false,
-      hasRecordedData: true,
+      historyItems: [
+        {
+          id: "history-1",
+          content: "<section />",
+          elementName: "section",
+          tagName: "section",
+          isComment: false,
+          timestamp: Date.now() - 60_000,
+        },
+        {
+          id: "history-2",
+          content: "<div />",
+          elementName: "div",
+          tagName: "div",
+          isComment: false,
+          timestamp: Date.now() - 180_000,
+        },
+      ],
+    },
+  },
+  {
+    id: "history-long-names",
+    label: "History (Long Names)",
+    description: "Long component names truncation",
+    component: "history-dropdown",
+    props: {
+      historyItems: [
+        {
+          id: "history-1",
+          content: "<InteractiveDataVisualizationChart />",
+          elementName: "InteractiveDataVisualizationChart",
+          tagName: "div",
+          componentName: "InteractiveDataVisualizationChart",
+          isComment: true,
+          commentText: "add tooltips on hover with data values and percentage",
+          timestamp: Date.now() - 5_000,
+        },
+        {
+          id: "history-2",
+          content: "<SuperLongComponentNameWrapper />",
+          elementName: "SuperLongComponentNameWrapper",
+          tagName: "custom-interactive-element",
+          componentName: "SuperLongComponentNameWrapper",
+          isComment: false,
+          timestamp: Date.now() - 86_400_000,
+        },
+      ],
+    },
+  },
+  {
+    id: "history-many-items",
+    label: "History (Many Items)",
+    description: "Scrollable list with many items",
+    component: "history-dropdown",
+    props: {
+      historyItems: [
+        {
+          id: "history-1",
+          content: "<Header />",
+          elementName: "Header",
+          tagName: "header",
+          componentName: "Header",
+          isComment: false,
+          timestamp: Date.now() - 10_000,
+        },
+        {
+          id: "history-2",
+          content: "<Navigation />",
+          elementName: "Navigation",
+          tagName: "nav",
+          componentName: "Navigation",
+          isComment: true,
+          commentText: "make it sticky",
+          timestamp: Date.now() - 60_000,
+        },
+        {
+          id: "history-3",
+          content: "<Card />",
+          elementName: "Card",
+          tagName: "div",
+          componentName: "Card",
+          isComment: false,
+          timestamp: Date.now() - 300_000,
+        },
+        {
+          id: "history-4",
+          content: "<Button />",
+          elementName: "Button",
+          tagName: "button",
+          componentName: "Button",
+          isComment: true,
+          commentText: "increase padding",
+          timestamp: Date.now() - 600_000,
+        },
+        {
+          id: "history-5",
+          content: "<Footer />",
+          elementName: "Footer",
+          tagName: "footer",
+          componentName: "Footer",
+          isComment: false,
+          timestamp: Date.now() - 1_800_000,
+        },
+        {
+          id: "history-6",
+          content: "<Sidebar />",
+          elementName: "Sidebar",
+          tagName: "aside",
+          componentName: "Sidebar",
+          isComment: false,
+          timestamp: Date.now() - 3_600_000,
+        },
+        {
+          id: "history-7",
+          content: "<Modal />",
+          elementName: "Modal",
+          tagName: "dialog",
+          componentName: "Modal",
+          isComment: true,
+          commentText: "add animation",
+          timestamp: Date.now() - 7_200_000,
+        },
+        {
+          id: "history-8",
+          content: "<Form />",
+          elementName: "Form",
+          tagName: "form",
+          componentName: "Form",
+          isComment: false,
+          timestamp: Date.now() - 43_200_000,
+        },
+      ],
     },
   },
 
@@ -1299,80 +1515,6 @@ const DESIGN_SYSTEM_STATES: DesignSystemState[] = [
       {
         props: { isToolbarActive: false, isToolbarEnabled: false },
         durationMs: 1500,
-      },
-    ],
-  },
-  {
-    id: "anim-toolbar-mode-cycle",
-    label: "Mode Cycle",
-    description: "off → select → scan → off",
-    component: "toolbar",
-    props: {
-      toolbarMode: "off",
-      hasPerformanceMode: true,
-    },
-    animationSequence: [
-      {
-        props: { toolbarMode: "off", hasPerformanceMode: true },
-        durationMs: 1500,
-      },
-      {
-        props: { toolbarMode: "select", hasPerformanceMode: true },
-        durationMs: 1500,
-      },
-      {
-        props: {
-          toolbarMode: "scan",
-          hasPerformanceMode: true,
-          isRecording: false,
-          hasRecordedData: false,
-        },
-        durationMs: 2000,
-      },
-      {
-        props: { toolbarMode: "off", hasPerformanceMode: true },
-        durationMs: 1500,
-      },
-    ],
-  },
-  {
-    id: "anim-toolbar-scan-record",
-    label: "Scan Record Flow",
-    description: "scan → recording → recorded",
-    component: "toolbar",
-    props: {
-      toolbarMode: "scan",
-      hasPerformanceMode: true,
-      isRecording: false,
-      hasRecordedData: false,
-    },
-    animationSequence: [
-      {
-        props: {
-          toolbarMode: "scan",
-          hasPerformanceMode: true,
-          isRecording: false,
-          hasRecordedData: false,
-        },
-        durationMs: 1500,
-      },
-      {
-        props: {
-          toolbarMode: "scan",
-          hasPerformanceMode: true,
-          isRecording: true,
-          hasRecordedData: false,
-        },
-        durationMs: 2000,
-      },
-      {
-        props: {
-          toolbarMode: "scan",
-          hasPerformanceMode: true,
-          isRecording: false,
-          hasRecordedData: true,
-        },
-        durationMs: 2000,
       },
     ],
   },
@@ -2263,6 +2405,16 @@ const StateCard = (props: StateCardProps) => {
   const hasAnimation = () => Boolean(props.state.animationSequence?.length);
   const frameCount = () => props.state.animationSequence?.length ?? 0;
 
+  const boundsAnchor = () => {
+    const bounds = props.getBounds();
+    if (!bounds) return null;
+    return {
+      x: bounds.x + bounds.width / 2,
+      y: bounds.y + bounds.height,
+      width: bounds.width,
+    };
+  };
+
   const currentProps = (): DesignSystemStateProps => {
     const baseProps =
       hasAnimation() && props.state.animationSequence
@@ -2475,7 +2627,12 @@ const StateCard = (props: StateCardProps) => {
 
       <div style={createCardContentStyle(props.theme)}>
         <Show when={!isCardRefreshing()}>
-          <Show when={props.state.component !== "toolbar"}>
+          <Show
+            when={
+              props.state.component !== "toolbar" &&
+              props.state.component !== "history-dropdown"
+            }
+          >
             <div
               ref={(element) => props.registerCell(element)}
               style={createTargetStyle(props.theme)}
@@ -2490,11 +2647,7 @@ const StateCard = (props: StateCardProps) => {
               componentName={currentProps().componentName}
               elementsCount={currentProps().elementsCount}
               selectionBounds={props.getBounds()}
-              mouseX={
-                props.getBounds()
-                  ? props.getBounds()!.x + props.getBounds()!.width / 2
-                  : undefined
-              }
+              mouseX={boundsAnchor()?.x}
               visible={true}
               status={currentProps().status}
               hasAgent={currentProps().hasAgent}
@@ -2541,11 +2694,8 @@ const StateCard = (props: StateCardProps) => {
           <Show when={props.state.component === "context-menu"}>
             <ContextMenu
               position={
-                props.getBounds()
-                  ? {
-                      x: props.getBounds()!.x + props.getBounds()!.width / 2,
-                      y: props.getBounds()!.y + props.getBounds()!.height,
-                    }
+                boundsAnchor()
+                  ? { x: boundsAnchor()!.x, y: boundsAnchor()!.y }
                   : null
               }
               selectionBounds={props.getBounds() ?? null}
@@ -2587,87 +2737,82 @@ const StateCard = (props: StateCardProps) => {
 
           <Show when={props.state.component === "toolbar"}>
             <ToolbarContent
-              selectionMode={((): SelectionMode => {
-                if (currentProps().isToolbarCommentMode) return "comment";
-                const isActive =
-                  currentProps().toolbarMode !== undefined
-                    ? currentProps().toolbarMode !== "off"
-                    : (currentProps().isToolbarActive ?? false);
-                if (isActive) return "select";
-                return "inactive";
-              })()}
-              enabled={
-                currentProps().toolbarMode !== undefined
-                  ? currentProps().toolbarMode !== "off"
-                  : (currentProps().isToolbarEnabled ?? true)
-              }
+              isActive={currentProps().isToolbarActive ?? false}
+              isCommentMode={currentProps().isToolbarCommentMode ?? false}
+              enabled={currentProps().isToolbarEnabled ?? true}
               isCollapsed={currentProps().isToolbarCollapsed}
               snapEdge={currentProps().toolbarSnapEdge}
-              selectButton={
-                currentProps().toolbarMode === "scan" ? (
-                  <div class="flex items-center gap-1 mr-1 overflow-visible min-w-0">
-                    <Show
-                      when={
-                        !currentProps().isRecording &&
-                        !currentProps().hasRecordedData
-                      }
-                    >
-                      <button class="contain-layout shrink-0 flex items-center justify-center size-3.5 rounded-full bg-black/70 hover:bg-black cursor-pointer">
-                        <svg
-                          class="ml-px"
-                          width="6"
-                          height="7"
-                          viewBox="0 0 6 7"
-                          fill="white"
-                          stroke="white"
-                          stroke-width="1"
-                          stroke-linejoin="round"
+              historyButton={
+                <Show
+                  when={
+                    (currentProps().isToolbarEnabled ?? true) &&
+                    (currentProps().toolbarHistoryItemCount ?? 0) > 0
+                  }
+                >
+                  <div class="grid grid-cols-[1fr] opacity-100 transition-all duration-150 ease-out">
+                    <div class="relative overflow-visible min-w-0">
+                      <button class="contain-layout flex items-center justify-center cursor-pointer interactive-scale touch-hitbox mr-1.5">
+                        <Show
+                          when={currentProps().toolbarHasUnreadHistoryItems}
+                          fallback={
+                            <IconInbox
+                              size={14}
+                              class="text-[#B3B3B3] transition-colors"
+                            />
+                          }
                         >
-                          <path d="M1 1L5 3.5L1 6V1Z" />
-                        </svg>
+                          <IconInboxUnread
+                            size={14}
+                            class="text-[#B3B3B3] transition-colors"
+                          />
+                        </Show>
                       </button>
-                    </Show>
-                    <Show when={currentProps().isRecording}>
-                      <button class="contain-layout shrink-0 flex items-center justify-center size-3.5 rounded-full bg-black cursor-pointer">
-                        <div class="size-1.5 bg-white rounded-[1px]" />
-                      </button>
-                    </Show>
-                    <Show
-                      when={
-                        !currentProps().isRecording &&
-                        currentProps().hasRecordedData
-                      }
-                    >
-                      <button class="contain-layout shrink-0 flex items-center justify-center size-3.5 rounded-full bg-black/70 hover:bg-black cursor-pointer">
-                        <svg
-                          class="ml-px"
-                          width="6"
-                          height="7"
-                          viewBox="0 0 6 7"
-                          fill="white"
-                          stroke="white"
-                          stroke-width="1"
-                          stroke-linejoin="round"
-                        >
-                          <path d="M1 1L5 3.5L1 6V1Z" />
-                        </svg>
-                      </button>
-                      <button class="flex items-center justify-center cursor-pointer text-black/70 hover:text-black">
-                        <IconCopy size={14} />
-                      </button>
-                    </Show>
+                    </div>
                   </div>
-                ) : undefined
+                </Show>
               }
-              toggleButton={
-                currentProps().toolbarMode !== undefined ? (
-                  <ModeSelector
-                    mode={currentProps().toolbarMode as ToolbarMode}
-                    onModeChange={() => {}}
-                    showScanMode={currentProps().hasPerformanceMode ?? false}
-                  />
-                ) : undefined
+            />
+          </Show>
+
+          <Show when={props.state.component === "history-dropdown"}>
+            <div
+              style={{
+                position: "absolute",
+                bottom: `${CARD_CONTENT_PADDING_PX}px`,
+                left: "50%",
+                transform: "translateX(-50%)",
+              }}
+            >
+              <div ref={(element) => props.registerCell(element)}>
+                <ToolbarContent
+                  isActive={true}
+                  enabled={true}
+                  historyButton={
+                    <div class="grid grid-cols-[1fr] opacity-100 transition-all duration-150 ease-out">
+                      <div class="relative overflow-visible min-w-0">
+                        <button class="contain-layout flex items-center justify-center cursor-pointer interactive-scale touch-hitbox mr-1.5">
+                          <IconInbox
+                            size={14}
+                            class="text-[#B3B3B3] transition-colors"
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  }
+                />
+              </div>
+            </div>
+            <HistoryDropdown
+              position={
+                boundsAnchor()
+                  ? {
+                      ...boundsAnchor()!,
+                      edge: "top" as const,
+                      toolbarWidth: boundsAnchor()!.width,
+                    }
+                  : null
               }
+              items={currentProps().historyItems ?? []}
             />
           </Show>
         </Show>
@@ -2893,6 +3038,13 @@ const DesignSystemGrid = () => {
       (state) =>
         state.component === "label" &&
         state.props.hasAgent &&
+        !hasAnimation(state) &&
+        matchesSearch(state),
+    );
+  const historyDropdownStates = () =>
+    DESIGN_SYSTEM_STATES.filter(
+      (state) =>
+        state.component === "history-dropdown" &&
         !hasAnimation(state) &&
         matchesSearch(state),
     );
@@ -3196,6 +3348,30 @@ const DesignSystemGrid = () => {
           </div>
         </Show>
 
+        {/* History Dropdown Section */}
+        <Show when={historyDropdownStates().length > 0}>
+          <div style={{ padding: `${GAP_PX}px 24px` }}>
+            <span style={sectionTitleStyle()}>History Dropdown</span>
+            <div style={gridStyle()}>
+              <For each={historyDropdownStates()}>
+                {(state) => (
+                  <StateCard
+                    state={state}
+                    theme={theme()}
+                    getBounds={() => getBoundsForCell(state.id)}
+                    registerCell={(element) => registerCell(state.id, element)}
+                    onRefresh={createRefreshHandler(state.id)}
+                    getTargetDisplayText={() => getTargetDisplayText(state)}
+                    isStarred={isStarred(state.id)}
+                    onToggleStar={() => handleToggleStar(state.id)}
+                    isScrambled={isScrambled()}
+                  />
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+
         {/* Agent States Section */}
         <Show when={agentLabelStates().length > 0}>
           <div style={{ padding: `${GAP_PX}px 24px` }}>
@@ -3229,6 +3405,7 @@ const DesignSystemGrid = () => {
               labelStates().length +
               contextMenuStates().length +
               toolbarStates().length +
+              historyDropdownStates().length +
               agentLabelStates().length ===
               0
           }

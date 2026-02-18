@@ -5,10 +5,8 @@ export {
   isInstrumentationActive,
   DEFAULT_THEME,
 } from "./core/index.js";
-export { screenshotPlugin } from "./core/plugins/screenshot.js";
-export { copyHtmlPlugin } from "./core/plugins/copy-html.js";
-export { openPlugin } from "./core/plugins/open.js";
 export { commentPlugin } from "./core/plugins/comment.js";
+export { openPlugin } from "./core/plugins/open.js";
 export { generateSnippet } from "./utils/generate-snippet.js";
 export {
   captureElementScreenshot,
@@ -43,6 +41,8 @@ export type {
   ActivationMode,
   ContextMenuAction,
   ContextMenuActionContext,
+  ToolbarMenuAction,
+  PluginAction,
   ActionContext,
   ActionContextHooks,
   Plugin,

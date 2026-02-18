@@ -1,4 +1,5 @@
 import type { Plugin } from "../../types.js";
+import { copyContent } from "../../utils/copy-content.js";
 
 export const copyHtmlPlugin: Plugin = {
   name: "copy-html",
@@ -22,10 +23,39 @@ export const copyHtmlPlugin: Plugin = {
 
           if (!transformedHtml) return false;
 
-          await navigator.clipboard.writeText(transformedHtml);
-          return true;
+          return copyContent(transformedHtml);
         });
       },
     },
   ],
+  setup: (api) => {
+    let isPendingSelection = false;
+
+    return {
+      hooks: {
+        onElementSelect: (element) => {
+          if (!isPendingSelection) return;
+          isPendingSelection = false;
+          api.deactivate();
+          if (element instanceof HTMLElement) {
+            copyContent(element.outerHTML);
+          }
+        },
+        onDeactivate: () => {
+          isPendingSelection = false;
+        },
+      },
+      actions: [
+        {
+          id: "copy-html-toolbar",
+          label: "Copy HTML",
+          target: "toolbar",
+          onAction: () => {
+            isPendingSelection = true;
+            api.activate();
+          },
+        },
+      ],
+    };
+  },
 };

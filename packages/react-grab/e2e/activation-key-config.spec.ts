@@ -1,6 +1,8 @@
 import { test, expect } from "./fixtures.js";
 
 test.describe("Activation Key Configuration", () => {
+  test.describe.configure({ mode: "serial" });
+
   test.describe("Configuration via reinitialize", () => {
     test("should accept activationKey option", async ({ reactGrab }) => {
       await reactGrab.reinitialize({
@@ -185,7 +187,7 @@ test.describe("Activation Key Configuration", () => {
 
       await reactGrab.page.keyboard.down(reactGrab.modifierKey);
       await reactGrab.page.keyboard.down("c");
-      await reactGrab.page.waitForTimeout(350);
+      await reactGrab.page.waitForTimeout(500);
       await reactGrab.page.keyboard.up("c");
       await reactGrab.page.keyboard.up(reactGrab.modifierKey);
 

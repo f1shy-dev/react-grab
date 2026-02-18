@@ -4,7 +4,10 @@ import type {
   PluginConfig,
   PluginHooks,
   Theme,
+  PluginAction,
   ContextMenuAction,
+  ToolbarMenuAction,
+  ReactGrabAPI,
   ReactGrabState,
   PromptModeContext,
   OverlayBounds,
@@ -51,6 +54,7 @@ interface PluginStoreState {
   theme: Required<Theme>;
   options: OptionsState;
   actions: ContextMenuAction[];
+  toolbarActions: ToolbarMenuAction[];
 }
 
 type HookName = keyof PluginHooks;
@@ -63,12 +67,17 @@ const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
     theme: DEFAULT_THEME,
     options: { ...DEFAULT_OPTIONS, ...initialOptions },
     actions: [],
+    toolbarActions: [],
   });
+
+  const isToolbarAction = (action: PluginAction): action is ToolbarMenuAction =>
+    action.target === "toolbar";
 
   const recomputeStore = () => {
     let mergedTheme: Required<Theme> = DEFAULT_THEME;
     let mergedOptions: OptionsState = { ...DEFAULT_OPTIONS, ...initialOptions };
-    const allActions: ContextMenuAction[] = [];
+    const allContextMenuActions: ContextMenuAction[] = [];
+    const allToolbarActions: ToolbarMenuAction[] = [];
 
     for (const { config } of plugins.values()) {
       if (config.theme) {
@@ -80,7 +89,13 @@ const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
       }
 
       if (config.actions) {
-        allActions.push(...config.actions);
+        for (const action of config.actions) {
+          if (isToolbarAction(action)) {
+            allToolbarActions.push(action);
+          } else {
+            allContextMenuActions.push(action);
+          }
+        }
       }
     }
 
@@ -88,7 +103,8 @@ const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
 
     setStore("theme", mergedTheme);
     setStore("options", mergedOptions);
-    setStore("actions", allActions);
+    setStore("actions", allContextMenuActions);
+    setStore("toolbarActions", allToolbarActions);
   };
 
   const setOptions = (optionUpdates: SettableOptions) => {
@@ -104,21 +120,12 @@ const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
     }
   };
 
-  const register = (plugin: Plugin, api: unknown) => {
+  const register = (plugin: Plugin, api: ReactGrabAPI) => {
     if (plugins.has(plugin.name)) {
       unregister(plugin.name);
     }
 
-    let config: PluginConfig;
-
-    if (plugin.setup) {
-      const setupResult = plugin.setup(
-        api as Parameters<NonNullable<Plugin["setup"]>>[0],
-      );
-      config = setupResult ?? {};
-    } else {
-      config = {};
-    }
+    const config: PluginConfig = plugin.setup?.(api) ?? {};
 
     if (plugin.theme) {
       config.theme = config.theme

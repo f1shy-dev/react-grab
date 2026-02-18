@@ -3,17 +3,21 @@ import {
   For,
   createSignal,
   createEffect,
+  createMemo,
   onMount,
   onCleanup,
 } from "solid-js";
 import type { Component } from "solid-js";
 import type { ArrowPosition, SelectionLabelProps } from "../../types.js";
 import {
+  DEFERRED_EXECUTION_DELAY_MS,
+  IME_COMPOSING_KEY_CODE,
   VIEWPORT_MARGIN_PX,
   ARROW_CENTER_PERCENT,
   ARROW_LABEL_MARGIN_PX,
   LABEL_GAP_PX,
   PANEL_STYLES,
+  SELECTION_LABEL_OFFSCREEN_PX,
 } from "../../constants.js";
 import { getArrowSize } from "../../utils/get-arrow-size.js";
 import { isKeyboardEventTriggeredByInput } from "../../utils/is-keyboard-event-triggered-by-input.js";
@@ -31,8 +35,8 @@ import { ErrorView } from "./error-view.js";
 import { CompletionView } from "./completion-view.js";
 
 const DEFAULT_OFFSCREEN_POSITION = {
-  left: -9999,
-  top: -9999,
+  left: SELECTION_LABEL_OFFSCREEN_PX,
+  top: SELECTION_LABEL_OFFSCREEN_PX,
   arrowLeftPercent: ARROW_CENTER_PERCENT,
   arrowLeftOffset: 0,
   edgeOffsetX: 0,
@@ -151,45 +155,49 @@ export const SelectionLabel: Component<SelectionLabelProps> = (props) => {
     }
   });
 
+  const sizeAffectingSignature = createMemo(() => [
+    props.tagName,
+    props.componentName,
+    props.elementsCount,
+    props.statusText,
+    props.inputValue,
+    props.hasAgent,
+    props.isPromptMode,
+    props.isPendingDismiss,
+    props.error,
+    props.isPendingAbort,
+    props.visible,
+    props.status,
+    props.actionCycleState?.items,
+    props.actionCycleState?.activeIndex,
+    props.actionCycleState?.isVisible,
+  ]);
+
   createEffect(() => {
-    // HACK: trigger measurement when content that affects size changes
-    // this is necessary because Solid's fine-grained reactivity means we don't re-render
-    // the entire component when props change. Since the label position depends on its
-    // width/height (to center it), and width/height depends on content, we must force
-    // a re-measure whenever ANY prop that could change the rendered size updates.
-    // Without this, switching from a short tag to a long component name would use the
-    // old cached width, causing the label to be offset incorrectly.
-    void props.tagName;
-    void props.componentName;
-    void props.elementsCount;
-    void props.statusText;
-    void props.inputValue;
-    void props.hasAgent;
-    void props.isPromptMode;
-    void props.isPendingDismiss;
-    void props.error;
-    void props.isPendingAbort;
-    void props.visible;
-    void props.status;
-    void props.actionCycleState?.items;
-    void props.actionCycleState?.activeIndex;
-    void props.actionCycleState?.isVisible;
-    // HACK: use queueMicrotask instead of RAF to measure sooner after content changes
-    // This prevents the flicker when transitioning between states (e.g., clicking "Keep")
+    // HACK: Trigger measurement when content that affects size changes.
+    // Solid's fine-grained reactivity means we do not re-render the entire
+    // component on every prop change. Label positioning depends on measured
+    // width/height for centering, and width/height depends on rendered content.
+    // We therefore force a re-measure whenever any size-affecting input changes.
+    // Without this, switching from a short tag to a long component name can keep
+    // stale width and offset the label incorrectly.
+    void sizeAffectingSignature();
     queueMicrotask(measureContainer);
   });
 
   createEffect(() => {
-    if (props.isPromptMode && inputRef) {
-      // HACK: setTimeout(0) defers focus to the next event loop tick to ensure
-      // the textarea is fully mounted and ready to receive focus
-      setTimeout(() => {
+    if (props.isPromptMode && inputRef && props.onSubmit) {
+      // HACK: Defer focus one tick so the textarea is fully mounted.
+      const focusTimeout = setTimeout(() => {
         inputRef?.focus();
-      }, 0);
+      }, DEFERRED_EXECUTION_DELAY_MS);
+      onCleanup(() => {
+        clearTimeout(focusTimeout);
+      });
     }
   });
 
-  const computedPosition = () => {
+  const positionComputation = createMemo(() => {
     viewportVersion();
 
     const bounds = props.selectionBounds;
@@ -199,7 +207,10 @@ export const SelectionLabel: Component<SelectionLabelProps> = (props) => {
     const hasValidBounds = bounds && bounds.width > 0 && bounds.height > 0;
 
     if (!hasMeasurements || !hasValidBounds) {
-      return lastValidPosition ?? DEFAULT_OFFSCREEN_POSITION;
+      return {
+        position: lastValidPosition ?? DEFAULT_OFFSCREEN_POSITION,
+        computedArrowPosition: null,
+      };
     }
 
     const viewportWidth = window.innerWidth;
@@ -212,7 +223,10 @@ export const SelectionLabel: Component<SelectionLabelProps> = (props) => {
       bounds.y < viewportHeight;
 
     if (!isSelectionVisibleInViewport) {
-      return DEFAULT_OFFSCREEN_POSITION;
+      return {
+        position: DEFAULT_OFFSCREEN_POSITION,
+        computedArrowPosition: null,
+      };
     }
 
     const selectionCenterX = bounds.x + bounds.width / 2;
@@ -220,7 +234,7 @@ export const SelectionLabel: Component<SelectionLabelProps> = (props) => {
     const selectionBottom = bounds.y + bounds.height;
     const selectionTop = bounds.y;
 
-    const actualArrowHeight = getArrowSize(panelWidth());
+    const actualArrowHeight = props.hideArrow ? 0 : getArrowSize(panelWidth());
 
     // HACK: Use cursorX as anchor point, CSS transform handles centering via translateX(-50%)
     // This avoids the flicker when content changes because centering doesn't depend on JS measurement
@@ -228,7 +242,6 @@ export const SelectionLabel: Component<SelectionLabelProps> = (props) => {
     let edgeOffsetX = 0;
     let positionTop = selectionBottom + actualArrowHeight + LABEL_GAP_PX;
 
-    // Calculate edge clamping offset (only applied when we have valid measurements)
     if (labelWidth > 0) {
       const labelLeft = anchorX - labelWidth / 2;
       const labelRight = anchorX + labelWidth / 2;
@@ -247,9 +260,6 @@ export const SelectionLabel: Component<SelectionLabelProps> = (props) => {
 
     if (!fitsBelow) {
       positionTop = selectionTop - totalHeightNeeded;
-      setArrowPosition("top");
-    } else {
-      setArrowPosition("bottom");
     }
 
     if (positionTop < VIEWPORT_MARGIN_PX) {
@@ -270,21 +280,33 @@ export const SelectionLabel: Component<SelectionLabelProps> = (props) => {
     );
     const arrowLeftOffset = clampedArrowCenterPx - labelHalfWidth;
 
-    const position = {
-      left: anchorX,
-      top: positionTop,
-      arrowLeftPercent,
-      arrowLeftOffset,
-      edgeOffsetX,
-    };
-    lastValidPosition = position;
-    setHadValidBounds(true);
+    const computedArrowPosition: ArrowPosition = fitsBelow ? "bottom" : "top";
 
-    return position;
-  };
+    return {
+      position: {
+        left: anchorX,
+        top: positionTop,
+        arrowLeftPercent,
+        arrowLeftOffset,
+        edgeOffsetX,
+      },
+      computedArrowPosition,
+    };
+  });
+
+  const computedPosition = () => positionComputation().position;
+
+  createEffect(() => {
+    const result = positionComputation();
+    if (result.computedArrowPosition !== null) {
+      lastValidPosition = result.position;
+      setHadValidBounds(true);
+      setArrowPosition(result.computedArrowPosition);
+    }
+  });
 
   const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.isComposing || event.keyCode === 229) {
+    if (event.isComposing || event.keyCode === IME_COMPOSING_KEY_CODE) {
       return;
     }
 
@@ -304,8 +326,11 @@ export const SelectionLabel: Component<SelectionLabelProps> = (props) => {
   };
 
   const handleInput = (event: InputEvent) => {
-    const target = event.target as HTMLTextAreaElement;
-    props.onInputChange?.(target.value);
+    const inputTarget = event.target;
+    if (!(inputTarget instanceof HTMLTextAreaElement)) {
+      return;
+    }
+    props.onInputChange?.(inputTarget.value);
   };
 
   const tagDisplayResult = () =>
@@ -335,7 +360,10 @@ export const SelectionLabel: Component<SelectionLabelProps> = (props) => {
     event.stopPropagation();
     event.stopImmediatePropagation();
     const isEditableInputVisible =
-      canInteract() && props.isPromptMode && !props.isPendingDismiss;
+      canInteract() &&
+      props.isPromptMode &&
+      !props.isPendingDismiss &&
+      props.onSubmit;
     if (isEditableInputVisible && inputRef) {
       inputRef.focus();
     }
@@ -374,12 +402,14 @@ export const SelectionLabel: Component<SelectionLabelProps> = (props) => {
         onMouseEnter={() => props.onHoverChange?.(true)}
         onMouseLeave={() => props.onHoverChange?.(false)}
       >
-        <Arrow
-          position={arrowPosition()}
-          leftPercent={computedPosition().arrowLeftPercent}
-          leftOffsetPx={computedPosition().arrowLeftOffset}
-          labelWidth={panelWidth()}
-        />
+        <Show when={!props.hideArrow}>
+          <Arrow
+            position={arrowPosition()}
+            leftPercent={computedPosition().arrowLeftPercent}
+            leftOffsetPx={computedPosition().arrowLeftOffset}
+            labelWidth={panelWidth()}
+          />
+        </Show>
 
         <Show when={isCompletedStatus() && !props.error}>
           <CompletionView
@@ -559,14 +589,17 @@ export const SelectionLabel: Component<SelectionLabelProps> = (props) => {
                     onKeyDown={handleKeyDown}
                     placeholder="Add context"
                     rows={1}
+                    readOnly={!props.onSubmit}
                   />
-                  <button
-                    data-react-grab-submit
-                    class="contain-layout shrink-0 flex items-center justify-center size-4 rounded-full bg-black cursor-pointer ml-1 interactive-scale"
-                    onClick={() => props.onSubmit?.()}
-                  >
-                    <IconSubmit size={10} class="text-white" />
-                  </button>
+                  <Show when={props.onSubmit}>
+                    <button
+                      data-react-grab-submit
+                      class="contain-layout shrink-0 flex items-center justify-center size-4 rounded-full bg-black cursor-pointer ml-1 interactive-scale"
+                      onClick={() => props.onSubmit?.()}
+                    >
+                      <IconSubmit size={10} class="text-white" />
+                    </button>
+                  </Show>
                 </div>
               </BottomSection>
             </div>

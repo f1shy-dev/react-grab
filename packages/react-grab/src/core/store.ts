@@ -83,8 +83,6 @@ interface GrabStore {
   activationTimestamp: number | null;
   previouslyFocusedElement: Element | null;
 
-  canUndo: boolean;
-  canRedo: boolean;
   isAgentConnected: boolean;
   supportsUndo: boolean;
   supportsFollowUp: boolean;
@@ -145,8 +143,6 @@ const createInitialStore = (input: GrabStoreInput): GrabStore => ({
   activationTimestamp: null,
   previouslyFocusedElement: null,
 
-  canUndo: false,
-  canRedo: false,
   isAgentConnected: false,
   supportsUndo: false,
   supportsFollowUp: false,
@@ -188,7 +184,6 @@ interface GrabActions {
   clearFrozenElement: () => void;
   setCopyStart: (position: Position, element: Element) => void;
   setLastGrabbed: (element: Element | null) => void;
-  setLastCopied: (element: Element | null) => void;
   clearLastCopied: () => void;
   setWasActivatedByToggle: (value: boolean) => void;
   setPendingCommentMode: (value: boolean) => void;
@@ -197,10 +192,7 @@ interface GrabActions {
     filePath: string | null,
     lineNumber: number | null,
   ) => void;
-  clearSelectionSource: () => void;
   setPendingClickData: (data: PendingClickData | null) => void;
-  clearPendingClickData: () => void;
-  setReplySessionId: (sessionId: string | null) => void;
   clearReplySessionId: () => void;
   incrementViewportVersion: () => void;
   addGrabbedBox: (box: GrabbedBox) => void;
@@ -213,10 +205,8 @@ interface GrabActions {
     errorMessage?: string,
   ) => void;
   removeLabelInstance: (instanceId: string) => void;
-  removeLabelsForElement: (element: Element) => void;
   clearLabelInstances: () => void;
   setHasAgentProvider: (value: boolean) => void;
-  setUndoRedoState: (canUndo: boolean, canRedo: boolean) => void;
   setAgentCapabilities: (capabilities: {
     supportsUndo: boolean;
     supportsFollowUp: boolean;
@@ -238,7 +228,6 @@ interface GrabActions {
   hideContextMenu: () => void;
   updateContextMenuPosition: () => void;
   setSelectedAgent: (agent: AgentOptions | null) => void;
-  clearSelectedAgent: () => void;
 }
 
 const createGrabStore = (input: GrabStoreInput) => {
@@ -550,10 +539,6 @@ const createGrabStore = (input: GrabStoreInput) => {
       setStore("lastGrabbedElement", element);
     },
 
-    setLastCopied: (element: Element | null) => {
-      setStore("lastCopiedElement", element);
-    },
-
     clearLastCopied: () => {
       setStore("lastCopiedElement", null);
     },
@@ -578,21 +563,8 @@ const createGrabStore = (input: GrabStoreInput) => {
       setStore("selectionLineNumber", lineNumber);
     },
 
-    clearSelectionSource: () => {
-      setStore("selectionFilePath", null);
-      setStore("selectionLineNumber", null);
-    },
-
     setPendingClickData: (data: PendingClickData | null) => {
       setStore("pendingClickData", data);
-    },
-
-    clearPendingClickData: () => {
-      setStore("pendingClickData", null);
-    },
-
-    setReplySessionId: (sessionId: string | null) => {
-      setStore("replySessionId", sessionId);
     },
 
     clearReplySessionId: () => {
@@ -649,23 +621,12 @@ const createGrabStore = (input: GrabStoreInput) => {
       );
     },
 
-    removeLabelsForElement: (element: Element) => {
-      setStore("labelInstances", (instances) =>
-        instances.filter((instance) => instance.element !== element),
-      );
-    },
-
     clearLabelInstances: () => {
       setStore("labelInstances", []);
     },
 
     setHasAgentProvider: (value: boolean) => {
       setStore("hasAgentProvider", value);
-    },
-
-    setUndoRedoState: (canUndo: boolean, canRedo: boolean) => {
-      setStore("canUndo", canUndo);
-      setStore("canRedo", canRedo);
     },
 
     setAgentCapabilities: (capabilities) => {
@@ -812,10 +773,6 @@ const createGrabStore = (input: GrabStoreInput) => {
 
     setSelectedAgent: (agent: AgentOptions | null) => {
       setStore("selectedAgent", agent);
-    },
-
-    clearSelectedAgent: () => {
-      setStore("selectedAgent", null);
     },
   };
 
