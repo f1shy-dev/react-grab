@@ -105,7 +105,7 @@ export const RenderScanDetails: Component<RenderScanDetailsProps> = (props) => {
           data-react-grab-ignore-events
           data-react-grab-render-scan-details
           class={cn(
-            "fixed rounded-[10px] border border-black/10 shadow-[0px_1px_2px_#51515140] [corner-shape:superellipse(1.25)] p-2 text-[10px] leading-[1.25] text-black/80 select-none",
+            "fixed rounded-[10px] border border-black/10 shadow-[0px_1px_2px_#51515140] [corner-shape:superellipse(1.25)] p-2 text-[10px] leading-[1.25] text-black/80 select-none font-sans antialiased [font-synthesis:none]",
             PANEL_STYLES,
           )}
           style={{
