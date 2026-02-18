@@ -20,6 +20,9 @@ import { IconChevron } from "../icons/icon-chevron.jsx";
 import { IconComment } from "../icons/icon-comment.jsx";
 import { IconInbox, IconInboxUnread } from "../icons/icon-inbox.jsx";
 import { IconMenu } from "../icons/icon-menu.jsx";
+import { IconRecord } from "../icons/icon-record.jsx";
+import { IconRecordStop } from "../icons/icon-record-stop.jsx";
+import { IconCopy } from "../icons/icon-copy.jsx";
 import {
   TOOLBAR_SNAP_MARGIN_PX,
   TOOLBAR_FADE_IN_DELAY_MS,
@@ -76,6 +79,11 @@ interface ToolbarProps {
   toolbarActions?: ToolbarMenuAction[];
   onToggleMenu?: () => void;
   isMenuOpen?: boolean;
+  isRecording?: boolean;
+  hasRecordedData?: boolean;
+  onStartRecording?: () => void;
+  onStopRecording?: () => void;
+  onCopyRecording?: () => void;
 }
 
 interface FreezeHandlersOptions {
@@ -121,6 +129,9 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
   const [isHistoryTooltipVisible, setIsHistoryTooltipVisible] =
     createSignal(false);
   const [isMenuTooltipVisible, setIsMenuTooltipVisible] = createSignal(false);
+  const [isRecordTooltipVisible, setIsRecordTooltipVisible] =
+    createSignal(false);
+  const [isCopyTooltipVisible, setIsCopyTooltipVisible] = createSignal(false);
 
   const hasToolbarActions = () => (props.toolbarActions ?? []).length > 0;
 
@@ -615,6 +626,19 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
   const handleHistory = createDragAwareHandler(() => props.onToggleHistory?.());
 
   const handleToggleMenu = createDragAwareHandler(() => props.onToggleMenu?.());
+
+  const handleRecording = createDragAwareHandler(() => {
+    if (props.isRecording) {
+      props.onStopRecording?.();
+      return;
+    }
+    props.onStartRecording?.();
+  });
+
+  const handleCopyRecording = createDragAwareHandler(() => {
+    if (!props.hasRecordedData || props.isRecording) return;
+    props.onCopyRecording?.();
+  });
 
   const handleToggleCollapse = createDragAwareHandler(() => {
     const rect = containerRef?.getBoundingClientRect();
@@ -1465,6 +1489,93 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
               ref={expandableButtonsRef}
               class={cn("flex items-center", isVertical() && "flex-col")}
             >
+              <div
+                class={cn(
+                  "grid",
+                  !isRapidRetoggle() && gridTransitionClass(),
+                  expandGridClass(Boolean(props.enabled)),
+                )}
+              >
+                <div
+                  class={cn("relative overflow-visible", minDimensionClass())}
+                >
+                  <button
+                    data-react-grab-ignore-events
+                    data-react-grab-toolbar-record
+                    class={cn(
+                      "contain-layout flex items-center justify-center cursor-pointer interactive-scale touch-hitbox",
+                      buttonSpacingClass(),
+                    )}
+                    on:pointerdown={(event) => {
+                      stopEventPropagation(event);
+                      handlePointerDown(event);
+                    }}
+                    on:mousedown={stopEventPropagation}
+                    onClick={(event) => {
+                      setIsRecordTooltipVisible(false);
+                      handleRecording(event);
+                    }}
+                    {...createFreezeHandlers(setIsRecordTooltipVisible)}
+                  >
+                    <Show
+                      when={props.isRecording}
+                      fallback={<IconRecord size={14} />}
+                    >
+                      <IconRecordStop size={14} />
+                    </Show>
+                  </button>
+                  <Tooltip
+                    visible={isRecordTooltipVisible() && isTooltipAllowed()}
+                    position={tooltipPosition()}
+                  >
+                    {props.isRecording ? "Stop recording" : "Start recording"}
+                  </Tooltip>
+                </div>
+              </div>
+              <div
+                class={cn(
+                  "grid",
+                  !isRapidRetoggle() && gridTransitionClass(),
+                  expandGridClass(Boolean(props.enabled)),
+                )}
+              >
+                <div
+                  class={cn("relative overflow-visible", minDimensionClass())}
+                >
+                  <button
+                    data-react-grab-ignore-events
+                    data-react-grab-toolbar-copy-recording
+                    class={cn(
+                      "contain-layout flex items-center justify-center interactive-scale touch-hitbox",
+                      buttonSpacingClass(),
+                      props.hasRecordedData && !props.isRecording
+                        ? "cursor-pointer"
+                        : "cursor-default opacity-40",
+                    )}
+                    disabled={!props.hasRecordedData || Boolean(props.isRecording)}
+                    on:pointerdown={(event) => {
+                      stopEventPropagation(event);
+                      handlePointerDown(event);
+                    }}
+                    on:mousedown={stopEventPropagation}
+                    onClick={(event) => {
+                      setIsCopyTooltipVisible(false);
+                      handleCopyRecording(event);
+                    }}
+                    {...createFreezeHandlers(setIsCopyTooltipVisible)}
+                  >
+                    <IconCopy size={14} class="text-[#B3B3B3]" />
+                  </button>
+                  <Tooltip
+                    visible={isCopyTooltipVisible() && isTooltipAllowed()}
+                    position={tooltipPosition()}
+                  >
+                    {props.hasRecordedData
+                      ? "Copy recording"
+                      : "No recording yet"}
+                  </Tooltip>
+                </div>
+              </div>
               <div
                 class={cn(
                   "grid",

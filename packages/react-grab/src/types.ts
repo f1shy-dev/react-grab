@@ -580,6 +580,11 @@ export interface ReactGrabRendererProps {
   toolbarMenuPosition?: DropdownAnchor | null;
   onToggleMenu?: () => void;
   onToolbarMenuDismiss?: () => void;
+  isRecording?: boolean;
+  hasRecordedData?: boolean;
+  onStartRecording?: () => void;
+  onStopRecording?: () => void;
+  onCopyRecording?: () => void;
 }
 
 export interface GrabbedBox {

@@ -82,6 +82,13 @@ import {
 import { isScreenshotSupported } from "../utils/is-screenshot-supported.js";
 import { delay } from "../utils/delay.js";
 import { resolveActionEnabled } from "../utils/resolve-action-enabled.js";
+import {
+  startRecording,
+  stopRecording,
+  copyRecording,
+  hasLogHistory,
+  isRecording as isScanRecording,
+} from "../utils/scan.js";
 import type {
   Options,
   OverlayBounds,
@@ -259,6 +266,9 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
       createSignal<ToolbarState | null>(savedToolbarState);
     const [isToolbarSelectHovered, setIsToolbarSelectHovered] =
       createSignal(false);
+    const [isRecording, setIsRecording] = createSignal(isScanRecording());
+    const [hasRecordedData, setHasRecordedData] =
+      createSignal(hasLogHistory());
     const [historyItems, setHistoryItems] =
       createSignal<HistoryItem[]>(loadHistory());
     const [historyDropdownPosition, setHistoryDropdownPosition] =
@@ -1668,6 +1678,22 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
         }
         inToggleFeedbackPeriod = false;
       }
+    };
+
+    const handleStartRecording = () => {
+      startRecording();
+      setIsRecording(true);
+      setHasRecordedData(false);
+    };
+
+    const handleStopRecording = () => {
+      stopRecording();
+      setIsRecording(false);
+      setHasRecordedData(hasLogHistory());
+    };
+
+    const handleCopyRecording = async () => {
+      await copyRecording();
     };
 
     const handlePointerMove = (clientX: number, clientY: number) => {
@@ -3928,6 +3954,11 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
             toolbarMenuPosition={toolbarMenuPosition()}
             onToggleMenu={handleToggleMenu}
             onToolbarMenuDismiss={dismissToolbarMenu}
+            isRecording={isRecording()}
+            hasRecordedData={hasRecordedData()}
+            onStartRecording={handleStartRecording}
+            onStopRecording={handleStopRecording}
+            onCopyRecording={handleCopyRecording}
           />
         );
       }, rendererRoot);
