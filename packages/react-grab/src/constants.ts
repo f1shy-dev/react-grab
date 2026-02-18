@@ -167,6 +167,15 @@ export const RENDER_SCAN_MAX_LABEL_LENGTH = 40;
 export const RENDER_SCAN_FLUSH_INTERVAL_MS = 32;
 export const RENDER_SCAN_MONO_FONT = "Geist,ui-monospace,monospace";
 export const RENDER_SCAN_MAX_LOG_ENTRIES = 10000;
+export const RENDER_SCAN_TOP_OFFENDER_COUNT = 5;
+export const RENDER_SCAN_LABEL_FONT_SIZE_PX = 11;
+export const RENDER_SCAN_LABEL_PADDING_PX = 4;
+export const RENDER_SCAN_DETAILS_OFFSET_PX = 8;
+export const RENDER_SCAN_DETAILS_MIN_WIDTH_PX = 220;
+export const RENDER_SCAN_DETAILS_MAX_WIDTH_PX = 260;
+export const RENDER_SCAN_DETAILS_ESTIMATED_HEIGHT_PX = 196;
+export const RENDER_SCAN_DETAILS_VIEWPORT_MARGIN_PX = 8;
+export const RENDER_SCAN_DETAILS_ATTRIBUTE = "data-react-grab-render-scan-details";
 
 export const IGNORE_EVENTS_ATTRIBUTE = "data-react-grab-ignore-events";
 

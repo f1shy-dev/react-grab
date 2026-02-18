@@ -5,9 +5,10 @@ import {
   onMount,
   onCleanup,
   Show,
+  For,
 } from "solid-js";
 import type { Component } from "solid-js";
-import type { ToolbarMenuAction } from "../../types.js";
+import type { ScanCopyPresetModeMap, ToolbarMenuAction } from "../../types.js";
 import { cn } from "../../utils/cn.js";
 import {
   loadToolbarState,
@@ -83,13 +84,45 @@ interface ToolbarProps {
   hasRecordedData?: boolean;
   onStartRecording?: () => void;
   onStopRecording?: () => void;
-  onCopyRecording?: (mode: "issues" | "all") => void;
+  onCopyRecording?: (mode: keyof ScanCopyPresetModeMap) => void;
 }
 
 interface FreezeHandlersOptions {
   shouldFreezeInteractions?: boolean;
   shouldSetSelectHoverState?: boolean;
 }
+
+const COPY_MODE_OPTIONS: Array<{
+  mode: keyof ScanCopyPresetModeMap;
+  label: string;
+  description: string;
+}> = [
+  {
+    mode: "issues",
+    label: "Issues",
+    description: "Significant performance issues",
+  },
+  {
+    mode: "all",
+    label: "All rerenders",
+    description: "Every recorded rerender",
+  },
+  {
+    mode: "top-offenders",
+    label: "Top offenders",
+    description: "Top components by total time",
+  },
+  {
+    mode: "unstable-props-only",
+    label: "Unstable props only",
+    description: "Only unstable object/function/state refs",
+  },
+  {
+    mode: "layout-effects-only",
+    label: "Layout effects only",
+    description: "Components with layout effect cost",
+  },
+];
 
 export const Toolbar: Component<ToolbarProps> = (props) => {
   let containerRef: HTMLDivElement | undefined;
@@ -654,7 +687,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
     setIsCopyModeMenuOpen((isOpen) => !isOpen);
   });
 
-  const handleCopyModeSelection = (mode: "issues" | "all") => {
+  const handleCopyModeSelection = (mode: keyof ScanCopyPresetModeMap) => {
     setIsCopyModeMenuOpen(false);
     props.onCopyRecording?.(mode);
   };
@@ -1643,35 +1676,32 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                     <div
                       ref={copyModeMenuRef}
                       class={cn(
-                        "absolute z-[2147483647] min-w-[84px] p-1 rounded-[10px] shadow-[0px_1px_2px_#51515140] border border-black/10 [corner-shape:superellipse(1.25)]",
+                        "absolute z-[2147483647] min-w-[196px] p-1 rounded-[10px] shadow-[0px_1px_2px_#51515140] border border-black/10 [corner-shape:superellipse(1.25)]",
                         PANEL_STYLES,
                         copyModeMenuPositionClass(),
                       )}
                     >
-                      <button
-                        data-react-grab-ignore-events
-                        class="w-full text-left px-2 py-1 text-[10px] text-black/80 hover:text-black hover:bg-black/5 rounded-[8px] cursor-pointer"
-                        on:pointerdown={stopEventPropagation}
-                        on:mousedown={(event) => {
-                          event.preventDefault();
-                          stopEventPropagation(event);
-                          handleCopyModeSelection("issues");
-                        }}
-                      >
-                        Issues
-                      </button>
-                      <button
-                        data-react-grab-ignore-events
-                        class="w-full text-left px-2 py-1 text-[10px] text-black/80 hover:text-black hover:bg-black/5 rounded-[8px] cursor-pointer"
-                        on:pointerdown={stopEventPropagation}
-                        on:mousedown={(event) => {
-                          event.preventDefault();
-                          stopEventPropagation(event);
-                          handleCopyModeSelection("all");
-                        }}
-                      >
-                        All rerenders
-                      </button>
+                      <For each={COPY_MODE_OPTIONS}>
+                        {(copyModeOption) => (
+                          <button
+                            data-react-grab-ignore-events
+                            class="w-full text-left px-2 py-1 rounded-[8px] cursor-pointer hover:bg-black/5"
+                            on:pointerdown={stopEventPropagation}
+                            on:mousedown={(event) => {
+                              event.preventDefault();
+                              stopEventPropagation(event);
+                              handleCopyModeSelection(copyModeOption.mode);
+                            }}
+                          >
+                            <span class="block text-[10px] text-black/80 hover:text-black">
+                              {copyModeOption.label}
+                            </span>
+                            <span class="block text-[9px] leading-[1.2] text-black/45">
+                              {copyModeOption.description}
+                            </span>
+                          </button>
+                        )}
+                      </For>
                     </div>
                   </Show>
                 </div>

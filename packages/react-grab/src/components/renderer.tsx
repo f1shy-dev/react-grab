@@ -10,6 +10,7 @@ import { buildOpenFileUrl } from "../utils/build-open-file-url.js";
 import { isElementConnected } from "../utils/is-element-connected.js";
 import { OverlayCanvas } from "./overlay-canvas.js";
 import { RenderScan } from "./render-scan.js";
+import { RenderScanDetails } from "./render-scan-details.js";
 import { SelectionLabel } from "./selection-label/index.js";
 import { Toolbar } from "./toolbar/index.js";
 import { ToolbarMenu } from "./toolbar/toolbar-menu.js";
@@ -35,7 +36,17 @@ export const ReactGrabRenderer: Component<ReactGrabRendererProps> = (props) => {
         labelInstances={props.labelInstances}
       />
 
-      <RenderScan enabled={Boolean(props.isRecording)} />
+      <RenderScan
+        enabled={Boolean(props.isRecording)}
+        onIndicatorSelect={props.onRenderScanIndicatorSelect}
+        onIndicatorDismiss={props.onRenderScanIndicatorDismiss}
+      />
+
+      <RenderScanDetails
+        details={props.renderScanDetails ?? null}
+        onDismiss={props.onRenderScanIndicatorDismiss}
+        onCopyComponent={props.onCopyRenderScanComponent}
+      />
 
       <div
         style={{

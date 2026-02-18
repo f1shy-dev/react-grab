@@ -482,6 +482,38 @@ export interface HistoryItem {
   timestamp: number;
 }
 
+export interface ScanCopyPresetModeMap {
+  issues: "issues";
+  all: "all";
+  "top-offenders": "top-offenders";
+  "unstable-props-only": "unstable-props-only";
+  "layout-effects-only": "layout-effects-only";
+}
+
+export interface RenderScanIndicatorSelection {
+  componentName: string;
+  renderCount: number;
+  anchorX: number;
+  anchorY: number;
+}
+
+export interface RenderScanComponentDetails {
+  componentName: string;
+  renderCount: number;
+  avgRenderTimeMs: number;
+  maxRenderTimeMs: number;
+  totalEffectTimeMs: number;
+  totalLayoutEffectTimeMs: number;
+  unstableProps: string[];
+  source: SourceLocation | null;
+}
+
+export interface RenderScanDetailsState {
+  anchorX: number;
+  anchorY: number;
+  component: RenderScanComponentDetails;
+}
+
 export interface ReactGrabRendererProps {
   selectionVisible?: boolean;
   selectionBounds?: OverlayBounds;
@@ -584,7 +616,16 @@ export interface ReactGrabRendererProps {
   hasRecordedData?: boolean;
   onStartRecording?: () => void;
   onStopRecording?: () => void;
-  onCopyRecording?: (mode: "issues" | "all") => void;
+  onCopyRecording?: (mode: keyof ScanCopyPresetModeMap) => void;
+  renderScanDetails?: RenderScanDetailsState | null;
+  onRenderScanIndicatorSelect?: (
+    selection: RenderScanIndicatorSelection,
+  ) => void;
+  onRenderScanIndicatorDismiss?: () => void;
+  onCopyRenderScanComponent?: (
+    componentName: string,
+    mode: keyof ScanCopyPresetModeMap,
+  ) => void;
 }
 
 export interface GrabbedBox {

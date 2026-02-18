@@ -16,6 +16,7 @@ import {
 } from "bippy";
 import {
   RENDER_SCAN_MAX_LOG_ENTRIES,
+  RENDER_SCAN_TOP_OFFENDER_COUNT,
   LOAF_MAX_ENTRIES,
   LOAF_THRESHOLD_MS,
   ACTIVITY_TYPE_RENDER,
@@ -55,6 +56,8 @@ import type {
   ComponentIdentity,
   ComponentStats,
   PerformanceRecommendation,
+  RenderScanComponentDetails,
+  ScanCopyPresetModeMap,
 } from "../types.js";
 
 interface PendingRender {
@@ -73,6 +76,13 @@ interface RenderCause {
 interface LogEntry {
   message: string;
   totalTime: number;
+}
+
+interface CopyableComponentEntry {
+  componentName: string;
+  stats: ComponentStats;
+  totalTime: number;
+  unstableProps: string[];
 }
 
 type RenderCallback = (renders: PendingRender[]) => void;
@@ -854,87 +864,191 @@ const serializeDiagnostic = (diagnostic: PerformanceDiagnostic): string => {
   return JSON.stringify(serializable, null, 2);
 };
 
-const formatComponentLine = (
-  componentName: string,
-  stats: ComponentStats,
-): string => {
-  const source = stats.component.source;
+const getUnstablePropsForComponent = (componentName: string): string[] =>
+  Array.from(unstablePropsPerComponent.get(componentName) ?? []).sort();
+
+const getCopyableComponentEntries = (
+  diagnostic: PerformanceDiagnostic,
+): CopyableComponentEntry[] => {
+  const componentEntries = Array.from(diagnostic.componentStats.entries());
+
+  return componentEntries.map(([componentName, stats]) => ({
+    componentName,
+    stats,
+    totalTime: stats.totalRenderTime + stats.totalEffectTime,
+    unstableProps: getUnstablePropsForComponent(componentName),
+  }));
+};
+
+const sortCopyableEntriesByTotalTime = (
+  entries: CopyableComponentEntry[],
+): CopyableComponentEntry[] =>
+  [...entries].sort((entryA, entryB) => entryB.totalTime - entryA.totalTime);
+
+const selectIssueEntries = (
+  entries: CopyableComponentEntry[],
+): CopyableComponentEntry[] =>
+  entries.filter(
+    (entry) =>
+      entry.totalTime >= MINIMUM_SIGNIFICANT_TIME_MS ||
+      entry.unstableProps.length > 0,
+  );
+
+const selectTopOffenderEntries = (
+  entries: CopyableComponentEntry[],
+): CopyableComponentEntry[] =>
+  sortCopyableEntriesByTotalTime(entries).slice(0, RENDER_SCAN_TOP_OFFENDER_COUNT);
+
+const selectUnstablePropsEntries = (
+  entries: CopyableComponentEntry[],
+): CopyableComponentEntry[] =>
+  entries.filter((entry) => entry.unstableProps.length > 0);
+
+const selectLayoutEffectEntries = (
+  entries: CopyableComponentEntry[],
+): CopyableComponentEntry[] =>
+  [...entries]
+    .filter((entry) => entry.stats.totalLayoutEffectTime > 0)
+    .sort(
+      (entryA, entryB) =>
+        entryB.stats.totalLayoutEffectTime -
+        entryA.stats.totalLayoutEffectTime,
+    );
+
+const selectEntriesByMode = (
+  mode: keyof ScanCopyPresetModeMap,
+  entries: CopyableComponentEntry[],
+): CopyableComponentEntry[] => {
+  if (mode === "all") {
+    return sortCopyableEntriesByTotalTime(entries);
+  }
+  if (mode === "issues") {
+    return sortCopyableEntriesByTotalTime(selectIssueEntries(entries));
+  }
+  if (mode === "top-offenders") {
+    return selectTopOffenderEntries(entries);
+  }
+  if (mode === "unstable-props-only") {
+    return sortCopyableEntriesByTotalTime(selectUnstablePropsEntries(entries));
+  }
+  return selectLayoutEffectEntries(entries);
+};
+
+const getModeHeading = (mode: keyof ScanCopyPresetModeMap): string => {
+  if (mode === "all") {
+    return "React Grab captured all rerender activity:";
+  }
+  if (mode === "issues") {
+    return "React Grab detected these components causing Long Animation Frames (>50ms main thread blocks). Fix each:";
+  }
+  if (mode === "top-offenders") {
+    return `React Grab top offenders (top ${RENDER_SCAN_TOP_OFFENDER_COUNT} by total render + effect time):`;
+  }
+  if (mode === "unstable-props-only") {
+    return "React Grab detected components with unstable props/state references:";
+  }
+  return "React Grab detected components spending time in layout effects:";
+};
+
+const getModeEmptyState = (mode: keyof ScanCopyPresetModeMap): string => {
+  if (mode === "all") {
+    return "React Grab detected no rerenders.";
+  }
+  if (mode === "issues") {
+    return "React Grab detected no significant performance issues.";
+  }
+  if (mode === "top-offenders") {
+    return "React Grab detected no rerenders to rank.";
+  }
+  if (mode === "unstable-props-only") {
+    return "React Grab detected no unstable props/state references.";
+  }
+  return "React Grab detected no layout effect activity.";
+};
+
+const getModeName = (mode: keyof ScanCopyPresetModeMap): string => {
+  if (mode === "all") {
+    return "all";
+  }
+  if (mode === "issues") {
+    return "issues";
+  }
+  if (mode === "top-offenders") {
+    return "top offenders";
+  }
+  if (mode === "unstable-props-only") {
+    return "unstable props only";
+  }
+  return "layout effects only";
+};
+
+const formatComponentLine = (entry: CopyableComponentEntry): string => {
+  const source = entry.stats.component.source;
   const sourceLabel = source
     ? `${source.filePath}${source.lineNumber ? `:${source.lineNumber}` : ""}`
     : "";
 
-  const diagnosticParts: string[] = [componentName];
+  const diagnosticParts: string[] = [entry.componentName];
   if (sourceLabel) {
     diagnosticParts.push(sourceLabel);
   }
 
-  if (stats.renderCount > 0) {
+  if (entry.stats.renderCount > 0) {
     diagnosticParts.push(
-      `render:${Math.round(stats.totalRenderTime)}ms*${stats.renderCount}`,
+      `render:${Math.round(entry.stats.totalRenderTime)}ms*${entry.stats.renderCount}`,
     );
-    diagnosticParts.push(`max:${Math.round(stats.maxRenderTime)}ms`);
+    diagnosticParts.push(`max:${Math.round(entry.stats.maxRenderTime)}ms`);
   }
 
-  const passiveEffectCount = stats.effectCount - stats.layoutEffectCount;
+  const passiveEffectCount =
+    entry.stats.effectCount - entry.stats.layoutEffectCount;
   const passiveEffectTime = Math.round(
-    stats.totalEffectTime - stats.totalLayoutEffectTime,
+    entry.stats.totalEffectTime - entry.stats.totalLayoutEffectTime,
   );
 
   if (passiveEffectCount > 0 && passiveEffectTime > 0) {
     diagnosticParts.push(`effect:${passiveEffectTime}ms*${passiveEffectCount}`);
   }
 
-  if (stats.layoutEffectCount > 0 && stats.totalLayoutEffectTime > 0) {
+  if (
+    entry.stats.layoutEffectCount > 0 &&
+    entry.stats.totalLayoutEffectTime > 0
+  ) {
     diagnosticParts.push(
-      `layoutEffect:${Math.round(stats.totalLayoutEffectTime)}ms*${stats.layoutEffectCount}`,
+      `layoutEffect:${Math.round(entry.stats.totalLayoutEffectTime)}ms*${entry.stats.layoutEffectCount}`,
     );
   }
 
-  const unstableEntries = unstablePropsPerComponent.get(componentName);
-  if (unstableEntries && unstableEntries.size > 0) {
-    diagnosticParts.push(`unstable:${Array.from(unstableEntries).join(",")}`);
+  if (entry.unstableProps.length > 0) {
+    diagnosticParts.push(`unstable:${entry.unstableProps.join(",")}`);
   }
 
   return diagnosticParts.join(" ");
 };
 
 export const copyRecording = async (
-  mode: "issues" | "all" = "issues",
+  mode: keyof ScanCopyPresetModeMap = "issues",
+  componentName?: string,
 ): Promise<boolean> => {
   const diagnostic = getPerformanceDiagnostic();
-  const componentEntries = Array.from(diagnostic.componentStats.entries());
-  const significantComponents =
-    mode === "all"
-      ? componentEntries
-      : componentEntries.filter(([componentName, stats]) => {
-          const totalTime = stats.totalRenderTime + stats.totalEffectTime;
-          const hasUnstableProps = unstablePropsPerComponent.has(componentName);
-          return totalTime >= MINIMUM_SIGNIFICANT_TIME_MS || hasUnstableProps;
-        });
+  const allEntries = getCopyableComponentEntries(diagnostic);
+  const selectedEntries = selectEntriesByMode(mode, allEntries);
+  const scopedEntries = componentName
+    ? selectedEntries.filter((entry) => entry.componentName === componentName)
+    : selectedEntries;
 
-  significantComponents.sort(
-    ([, statsA], [, statsB]) =>
-      statsB.totalRenderTime +
-      statsB.totalEffectTime -
-      (statsA.totalRenderTime + statsA.totalEffectTime),
-  );
-
-  const componentLines = significantComponents.map(([componentName, stats]) =>
-    formatComponentLine(componentName, stats),
-  );
+  const componentLines = scopedEntries.map((entry) => formatComponentLine(entry));
 
   let outputText: string;
   if (componentLines.length === 0) {
-    outputText =
-      mode === "all"
-        ? "React Grab detected no rerenders."
-        : "React Grab detected no significant performance issues.";
+    outputText = componentName
+      ? `React Grab found no ${getModeName(mode)} data for ${componentName}.`
+      : getModeEmptyState(mode);
   } else {
-    const preamble =
-      mode === "all"
-        ? "React Grab captured all rerender activity:"
-        : "React Grab detected these components causing Long Animation Frames (>50ms main thread blocks). Fix each:";
-    outputText = `${preamble}\n\n${componentLines.join("\n")}`;
+    const heading = componentName
+      ? `${getModeHeading(mode).replace(/:$/, "")} (${componentName}):`
+      : getModeHeading(mode);
+    outputText = `${heading}\n\n${componentLines.join("\n")}`;
   }
 
   if (typeof navigator !== "undefined" && navigator.clipboard) {
@@ -950,6 +1064,27 @@ export const copyDiagnosticJson = async (): Promise<void> => {
   if (typeof navigator !== "undefined" && navigator.clipboard) {
     await navigator.clipboard.writeText(json);
   }
+};
+
+export const getRenderScanComponentDetails = (
+  componentName: string,
+): RenderScanComponentDetails | null => {
+  const diagnostic = getPerformanceDiagnostic();
+  const stats = diagnostic.componentStats.get(componentName);
+  if (!stats) {
+    return null;
+  }
+
+  return {
+    componentName,
+    renderCount: stats.renderCount,
+    avgRenderTimeMs: stats.avgRenderTime,
+    maxRenderTimeMs: stats.maxRenderTime,
+    totalEffectTimeMs: stats.totalEffectTime,
+    totalLayoutEffectTimeMs: stats.totalLayoutEffectTime,
+    unstableProps: getUnstablePropsForComponent(componentName),
+    source: stats.component.source,
+  };
 };
 
 export const isScanAvailable = (): boolean => isInstrumentationActive();

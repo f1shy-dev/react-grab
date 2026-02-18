@@ -86,6 +86,7 @@ import {
   startRecording,
   stopRecording,
   copyRecording,
+  getRenderScanComponentDetails,
   hasLogHistory,
   isRecording as isScanRecording,
 } from "../utils/scan.js";
@@ -109,6 +110,9 @@ import type {
   ToolbarState,
   HistoryItem,
   DropdownAnchor,
+  ScanCopyPresetModeMap,
+  RenderScanIndicatorSelection,
+  RenderScanDetailsState,
 } from "../types.js";
 import { DEFAULT_THEME } from "./theme.js";
 import { createPluginRegistry } from "./plugin-registry.js";
@@ -269,6 +273,8 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
     const [isRecording, setIsRecording] = createSignal(isScanRecording());
     const [hasRecordedData, setHasRecordedData] =
       createSignal(hasLogHistory());
+    const [renderScanDetails, setRenderScanDetails] =
+      createSignal<RenderScanDetailsState | null>(null);
     const [historyItems, setHistoryItems] =
       createSignal<HistoryItem[]>(loadHistory());
     const [historyDropdownPosition, setHistoryDropdownPosition] =
@@ -1684,16 +1690,45 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
       startRecording();
       setIsRecording(true);
       setHasRecordedData(false);
+      setRenderScanDetails(null);
     };
 
     const handleStopRecording = () => {
       stopRecording();
       setIsRecording(false);
       setHasRecordedData(hasLogHistory());
+      setRenderScanDetails(null);
     };
 
-    const handleCopyRecording = async (mode: "issues" | "all") => {
+    const handleCopyRecording = async (mode: keyof ScanCopyPresetModeMap) => {
       await copyRecording(mode);
+    };
+
+    const handleRenderScanIndicatorSelect = (
+      selection: RenderScanIndicatorSelection,
+    ) => {
+      const details = getRenderScanComponentDetails(selection.componentName);
+      if (!details) {
+        setRenderScanDetails(null);
+        return;
+      }
+
+      setRenderScanDetails({
+        anchorX: selection.anchorX,
+        anchorY: selection.anchorY,
+        component: details,
+      });
+    };
+
+    const handleRenderScanIndicatorDismiss = () => {
+      setRenderScanDetails(null);
+    };
+
+    const handleCopyRenderScanComponent = async (
+      componentName: string,
+      mode: keyof ScanCopyPresetModeMap,
+    ) => {
+      await copyRecording(mode, componentName);
     };
 
     const handlePointerMove = (clientX: number, clientY: number) => {
@@ -3959,6 +3994,10 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
             onStartRecording={handleStartRecording}
             onStopRecording={handleStopRecording}
             onCopyRecording={handleCopyRecording}
+            renderScanDetails={renderScanDetails()}
+            onRenderScanIndicatorSelect={handleRenderScanIndicatorSelect}
+            onRenderScanIndicatorDismiss={handleRenderScanIndicatorDismiss}
+            onCopyRenderScanComponent={handleCopyRenderScanComponent}
           />
         );
       }, rendererRoot);
