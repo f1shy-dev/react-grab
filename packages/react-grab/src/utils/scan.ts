@@ -898,17 +898,19 @@ const formatComponentLine = (
   return diagnosticParts.join(" ");
 };
 
-export const copyRecording = async (): Promise<boolean> => {
+export const copyRecording = async (
+  mode: "issues" | "all" = "issues",
+): Promise<boolean> => {
   const diagnostic = getPerformanceDiagnostic();
-
-  const significantComponents: Array<[string, ComponentStats]> = [];
-  for (const [componentName, stats] of diagnostic.componentStats) {
-    const totalTime = stats.totalRenderTime + stats.totalEffectTime;
-    const hasUnstableProps = unstablePropsPerComponent.has(componentName);
-    if (totalTime >= MINIMUM_SIGNIFICANT_TIME_MS || hasUnstableProps) {
-      significantComponents.push([componentName, stats]);
-    }
-  }
+  const componentEntries = Array.from(diagnostic.componentStats.entries());
+  const significantComponents =
+    mode === "all"
+      ? componentEntries
+      : componentEntries.filter(([componentName, stats]) => {
+          const totalTime = stats.totalRenderTime + stats.totalEffectTime;
+          const hasUnstableProps = unstablePropsPerComponent.has(componentName);
+          return totalTime >= MINIMUM_SIGNIFICANT_TIME_MS || hasUnstableProps;
+        });
 
   significantComponents.sort(
     ([, statsA], [, statsB]) =>
@@ -923,10 +925,15 @@ export const copyRecording = async (): Promise<boolean> => {
 
   let outputText: string;
   if (componentLines.length === 0) {
-    outputText = "React Grab detected no significant performance issues.";
+    outputText =
+      mode === "all"
+        ? "React Grab detected no rerenders."
+        : "React Grab detected no significant performance issues.";
   } else {
     const preamble =
-      "React Grab detected these components causing Long Animation Frames (>50ms main thread blocks). Fix each:";
+      mode === "all"
+        ? "React Grab captured all rerender activity:"
+        : "React Grab detected these components causing Long Animation Frames (>50ms main thread blocks). Fix each:";
     outputText = `${preamble}\n\n${componentLines.join("\n")}`;
   }
 

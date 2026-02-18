@@ -83,7 +83,7 @@ interface ToolbarProps {
   hasRecordedData?: boolean;
   onStartRecording?: () => void;
   onStopRecording?: () => void;
-  onCopyRecording?: () => void;
+  onCopyRecording?: (mode: "issues" | "all") => void;
 }
 
 interface FreezeHandlersOptions {
@@ -132,6 +132,9 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
   const [isRecordTooltipVisible, setIsRecordTooltipVisible] =
     createSignal(false);
   const [isCopyTooltipVisible, setIsCopyTooltipVisible] = createSignal(false);
+  const [isCopyModeMenuOpen, setIsCopyModeMenuOpen] = createSignal(false);
+  let copyModeMenuRef: HTMLDivElement | undefined;
+  let copyRecordingButtonRef: HTMLButtonElement | undefined;
 
   const hasToolbarActions = () => (props.toolbarActions ?? []).length > 0;
 
@@ -173,6 +176,17 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
       case "right":
         return "left";
     }
+  };
+
+  const copyModeMenuPositionClass = () => {
+    if (isVertical()) {
+      return snapEdge() === "left"
+        ? "left-full ml-1 top-1/2 -translate-y-1/2"
+        : "right-full mr-1 top-1/2 -translate-y-1/2";
+    }
+    return tooltipPosition() === "top"
+      ? "bottom-full mb-1 left-1/2 -translate-x-1/2"
+      : "top-full mt-1 left-1/2 -translate-x-1/2";
   };
 
   const expandGridClass = (
@@ -637,7 +651,18 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
 
   const handleCopyRecording = createDragAwareHandler(() => {
     if (!props.hasRecordedData || props.isRecording) return;
-    props.onCopyRecording?.();
+    setIsCopyModeMenuOpen((isOpen) => !isOpen);
+  });
+
+  const handleCopyModeSelection = (mode: "issues" | "all") => {
+    setIsCopyModeMenuOpen(false);
+    props.onCopyRecording?.(mode);
+  };
+
+  createEffect(() => {
+    if (!props.hasRecordedData || props.isRecording) {
+      setIsCopyModeMenuOpen(false);
+    }
   });
 
   const handleToggleCollapse = createDragAwareHandler(() => {
@@ -1224,6 +1249,21 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
     props.onStateChange?.(state);
   };
 
+  const handleCopyModeMenuOutsideClick = (event: MouseEvent) => {
+    if (!isCopyModeMenuOpen()) return;
+    const eventTarget = event.target;
+    if (!(eventTarget instanceof Node)) return;
+    if (copyModeMenuRef?.contains(eventTarget)) return;
+    if (copyRecordingButtonRef?.contains(eventTarget)) return;
+    setIsCopyModeMenuOpen(false);
+  };
+
+  const handleCopyModeMenuEscape = (event: KeyboardEvent) => {
+    if (!isCopyModeMenuOpen()) return;
+    if (event.code !== "Escape") return;
+    setIsCopyModeMenuOpen(false);
+  };
+
   onMount(() => {
     if (containerRef) {
       props.onContainerRef?.(containerRef);
@@ -1341,6 +1381,24 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
 
     onCleanup(() => {
       clearTimeout(fadeInTimeout);
+    });
+  });
+
+  onMount(() => {
+    window.addEventListener("mousedown", handleCopyModeMenuOutsideClick, {
+      capture: true,
+    });
+    window.addEventListener("keydown", handleCopyModeMenuEscape, {
+      capture: true,
+    });
+
+    onCleanup(() => {
+      window.removeEventListener("mousedown", handleCopyModeMenuOutsideClick, {
+        capture: true,
+      });
+      window.removeEventListener("keydown", handleCopyModeMenuEscape, {
+        capture: true,
+      });
     });
   });
 
@@ -1543,6 +1601,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                   class={cn("relative overflow-visible", minDimensionClass())}
                 >
                   <button
+                    ref={copyRecordingButtonRef}
                     data-react-grab-ignore-events
                     data-react-grab-toolbar-copy-recording
                     class={cn(
@@ -1574,6 +1633,47 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                       ? "Copy recording"
                       : "No recording yet"}
                   </Tooltip>
+                  <Show
+                    when={
+                      isCopyModeMenuOpen() &&
+                      props.hasRecordedData &&
+                      !props.isRecording
+                    }
+                  >
+                    <div
+                      ref={copyModeMenuRef}
+                      class={cn(
+                        "absolute z-[2147483647] min-w-[84px] p-1 rounded-[10px] shadow-[0px_1px_2px_#51515140] border border-black/10 [corner-shape:superellipse(1.25)]",
+                        PANEL_STYLES,
+                        copyModeMenuPositionClass(),
+                      )}
+                    >
+                      <button
+                        data-react-grab-ignore-events
+                        class="w-full text-left px-2 py-1 text-[10px] text-black/80 hover:text-black hover:bg-black/5 rounded-[8px] cursor-pointer"
+                        on:pointerdown={stopEventPropagation}
+                        on:mousedown={(event) => {
+                          event.preventDefault();
+                          stopEventPropagation(event);
+                          handleCopyModeSelection("issues");
+                        }}
+                      >
+                        Issues
+                      </button>
+                      <button
+                        data-react-grab-ignore-events
+                        class="w-full text-left px-2 py-1 text-[10px] text-black/80 hover:text-black hover:bg-black/5 rounded-[8px] cursor-pointer"
+                        on:pointerdown={stopEventPropagation}
+                        on:mousedown={(event) => {
+                          event.preventDefault();
+                          stopEventPropagation(event);
+                          handleCopyModeSelection("all");
+                        }}
+                      >
+                        All rerenders
+                      </button>
+                    </div>
+                  </Show>
                 </div>
               </div>
               <div

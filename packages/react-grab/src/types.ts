@@ -584,7 +584,7 @@ export interface ReactGrabRendererProps {
   hasRecordedData?: boolean;
   onStartRecording?: () => void;
   onStopRecording?: () => void;
-  onCopyRecording?: () => void;
+  onCopyRecording?: (mode: "issues" | "all") => void;
 }
 
 export interface GrabbedBox {

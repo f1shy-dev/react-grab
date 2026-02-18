@@ -1692,8 +1692,8 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
       setHasRecordedData(hasLogHistory());
     };
 
-    const handleCopyRecording = async () => {
-      await copyRecording();
+    const handleCopyRecording = async (mode: "issues" | "all") => {
+      await copyRecording(mode);
     };
 
     const handlePointerMove = (clientX: number, clientY: number) => {
