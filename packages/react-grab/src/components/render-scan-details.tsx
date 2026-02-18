@@ -187,7 +187,10 @@ export const RenderScanDetails: Component<RenderScanDetailsProps> = (props) => {
               onMouseDown={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                props.onCopyComponent?.(details().component.componentKey, "all");
+                props.onCopyComponent?.(
+                  details().component.componentKey,
+                  "all",
+                );
               }}
             >
               Copy all

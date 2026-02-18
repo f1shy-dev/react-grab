@@ -271,8 +271,7 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
     const [isToolbarSelectHovered, setIsToolbarSelectHovered] =
       createSignal(false);
     const [isRecording, setIsRecording] = createSignal(isScanRecording());
-    const [hasRecordedData, setHasRecordedData] =
-      createSignal(hasLogHistory());
+    const [hasRecordedData, setHasRecordedData] = createSignal(hasLogHistory());
     const [renderScanDetails, setRenderScanDetails] =
       createSignal<RenderScanDetailsState | null>(null);
     const [historyItems, setHistoryItems] =
@@ -3349,7 +3348,9 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
         }
 
         const resolvedComponentName =
-          componentName ?? (await getNearestComponentName(element)) ?? undefined;
+          componentName ??
+          (await getNearestComponentName(element)) ??
+          undefined;
         if (!resolvedComponentName) {
           return false;
         }
@@ -3381,8 +3382,8 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
         enterPromptMode: customEnterPromptMode ?? defaultEnterPromptMode,
         openRenderScanDetails:
           canOpenRenderScanDetails && canDebugSelectedComponent
-          ? openRenderScanDetails
-          : undefined,
+            ? openRenderScanDetails
+            : undefined,
         copy: copyAction,
         hooks: {
           transformHtmlContent: pluginRegistry.hooks.transformHtmlContent,

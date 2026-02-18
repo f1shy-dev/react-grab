@@ -863,6 +863,7 @@ export interface ComponentStats {
   layoutEffectCount: number;
   totalLayoutEffectTime: number;
   loafsContributed: number;
+  renderDurations: number[];
   topRenderCauses: Array<{
     type: string;
     count: number;
@@ -911,8 +912,16 @@ export interface PerformanceDiagnosticSummary {
   totalRenders: number;
   totalEffects: number;
   totalForcedLayouts: number;
+  commitCount: number;
+  p95CommitDurationMs: number;
+  p99CommitDurationMs: number;
 }
 
+export interface UnstablePropAggregation {
+  propName: string;
+  componentCount: number;
+  componentNames: string[];
+}
 export interface PerformanceDiagnostic {
   timestamp: number;
   sessionId: string;
@@ -920,4 +929,5 @@ export interface PerformanceDiagnostic {
   frames: PerformanceFrame[];
   componentStats: Map<string, ComponentStats>;
   recommendations: PerformanceRecommendation[];
+  topUnstableProps: UnstablePropAggregation[];
 }

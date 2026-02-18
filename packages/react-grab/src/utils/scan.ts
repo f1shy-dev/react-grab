@@ -59,6 +59,7 @@ import type {
   RenderScanComponentDetails,
   RenderScanComponentLookup,
   ScanCopyPresetModeMap,
+  UnstablePropAggregation,
 } from "../types.js";
 
 interface PendingRender {
@@ -513,7 +514,8 @@ const formatRenderLog = (
         getLineNumber(fiber),
       );
       const unstableEntries =
-        unstablePropsPerComponent.get(componentIdentityKey) || new Set<string>();
+        unstablePropsPerComponent.get(componentIdentityKey) ||
+        new Set<string>();
       for (const functionName of unstableInfo.unstableFunctions) {
         unstableEntries.add(`${functionName}(fn)`);
       }
@@ -623,7 +625,8 @@ const getBestMatchingComponentKey = (
   if (exactMatches.length > 0) {
     const exactMatch = exactMatches.sort(
       ([, statsA], [, statsB]) =>
-        statsB.totalRenderTime + statsB.totalEffectTime -
+        statsB.totalRenderTime +
+        statsB.totalEffectTime -
         (statsA.totalRenderTime + statsA.totalEffectTime),
     )[0];
     return exactMatch[0];
@@ -638,7 +641,8 @@ const getBestMatchingComponentKey = (
 
   const strongestNameMatch = nameOnlyMatches.sort(
     ([, statsA], [, statsB]) =>
-      statsB.totalRenderTime + statsB.totalEffectTime -
+      statsB.totalRenderTime +
+      statsB.totalEffectTime -
       (statsA.totalRenderTime + statsA.totalEffectTime),
   )[0];
   return strongestNameMatch[0];
@@ -858,7 +862,9 @@ export const stopRecording = (): void => {
   persistState(false);
 };
 
-const generateSyntheticLoAFs = (): LoAFEntry[] => {
+const generateSyntheticLoAFs = (
+  thresholdMs: number = LOAF_THRESHOLD_MS,
+): LoAFEntry[] => {
   const activityEntries = getAllEntries();
   if (activityEntries.length === 0) return [];
 
@@ -887,7 +893,7 @@ const generateSyntheticLoAFs = (): LoAFEntry[] => {
           (sum, innerEntry) => sum + innerEntry.selfTime,
           0,
         );
-        if (windowTotalTime >= LOAF_THRESHOLD_MS) {
+        if (windowTotalTime >= thresholdMs) {
           const windowEndTime = Math.max(
             ...currentWindowEntries.map((innerEntry) => innerEntry.endTime),
           );
@@ -912,7 +918,7 @@ const generateSyntheticLoAFs = (): LoAFEntry[] => {
       (sum, innerEntry) => sum + innerEntry.selfTime,
       0,
     );
-    if (windowTotalTime >= LOAF_THRESHOLD_MS) {
+    if (windowTotalTime >= thresholdMs) {
       const windowEndTime = Math.max(
         ...currentWindowEntries.map((innerEntry) => innerEntry.endTime),
       );
@@ -973,7 +979,10 @@ const selectIssueEntries = (
 const selectTopOffenderEntries = (
   entries: CopyableComponentEntry[],
 ): CopyableComponentEntry[] =>
-  sortCopyableEntriesByTotalTime(entries).slice(0, RENDER_SCAN_TOP_OFFENDER_COUNT);
+  sortCopyableEntriesByTotalTime(entries).slice(
+    0,
+    RENDER_SCAN_TOP_OFFENDER_COUNT,
+  );
 
 const selectUnstablePropsEntries = (
   entries: CopyableComponentEntry[],
@@ -987,8 +996,7 @@ const selectLayoutEffectEntries = (
     .filter((entry) => entry.stats.totalLayoutEffectTime > 0)
     .sort(
       (entryA, entryB) =>
-        entryB.stats.totalLayoutEffectTime -
-        entryA.stats.totalLayoutEffectTime,
+        entryB.stats.totalLayoutEffectTime - entryA.stats.totalLayoutEffectTime,
     );
 
 const selectEntriesByMode = (
@@ -1102,11 +1110,41 @@ const formatComponentLine = (entry: CopyableComponentEntry): string => {
   return diagnosticParts.join(" ");
 };
 
+const formatDiagnosticSummary = (diagnostic: PerformanceDiagnostic): string => {
+  const { summary } = diagnostic;
+  if (summary.commitCount === 0) return "";
+
+  const parts: string[] = [`commits:${summary.commitCount}`];
+
+  if (summary.p95CommitDurationMs > 0) {
+    parts.push(`p95:${Math.round(summary.p95CommitDurationMs)}ms`);
+  }
+  if (summary.p99CommitDurationMs > 0) {
+    parts.push(`p99:${Math.round(summary.p99CommitDurationMs)}ms`);
+  }
+
+  return `Summary: ${parts.join(" ")}`;
+};
+
+const formatTopUnstableProps = (
+  topUnstableProps: UnstablePropAggregation[],
+): string => {
+  if (topUnstableProps.length === 0) return "";
+
+  const lines = topUnstableProps.map(
+    (aggregation) =>
+      `${aggregation.propName} (${aggregation.componentCount} components: ${aggregation.componentNames.join(", ")})`,
+  );
+
+  return `Cross-component unstable props:\n${lines.join("\n")}`;
+};
+
 export const copyRecording = async (
   mode: keyof ScanCopyPresetModeMap = "issues",
   componentKey?: string,
 ): Promise<boolean> => {
-  const diagnostic = getPerformanceDiagnostic();
+  const isRawMode = mode === "all";
+  const diagnostic = getPerformanceDiagnostic({ rawMode: isRawMode });
   const allEntries = getCopyableComponentEntries(diagnostic);
   const selectedEntries = selectEntriesByMode(mode, allEntries);
   const scopedEntries = componentKey
@@ -1115,7 +1153,9 @@ export const copyRecording = async (
   const scopedComponentName =
     scopedEntries[0]?.componentName ?? "selected component";
 
-  const componentLines = scopedEntries.map((entry) => formatComponentLine(entry));
+  const componentLines = scopedEntries.map((entry) =>
+    formatComponentLine(entry),
+  );
 
   let outputText: string;
   if (componentLines.length === 0) {
@@ -1126,7 +1166,18 @@ export const copyRecording = async (
     const heading = componentKey
       ? `${getModeHeading(mode).replace(/:$/, "")} (${scopedComponentName}):`
       : getModeHeading(mode);
-    outputText = `${heading}\n\n${componentLines.join("\n")}`;
+    const summaryLine = formatDiagnosticSummary(diagnostic);
+    const unstablePropsSection = formatTopUnstableProps(
+      diagnostic.topUnstableProps,
+    );
+    const sections = [heading, "", componentLines.join("\n")];
+    if (summaryLine) {
+      sections.push("", summaryLine);
+    }
+    if (unstablePropsSection) {
+      sections.push("", unstablePropsSection);
+    }
+    outputText = sections.join("\n");
   }
 
   if (typeof navigator !== "undefined" && navigator.clipboard) {
@@ -1366,6 +1417,7 @@ const aggregateByComponent = (
         );
         existing.avgRenderTime =
           existing.totalRenderTime / existing.renderCount;
+        existing.renderDurations.push(render.selfTime);
         existing.loafsContributed++;
       } else {
         stats.set(key, {
@@ -1380,6 +1432,7 @@ const aggregateByComponent = (
           layoutEffectCount: 0,
           totalLayoutEffectTime: 0,
           loafsContributed: 1,
+          renderDurations: [render.selfTime],
           topRenderCauses: [],
           allOptimizationHints: [],
         });
@@ -1413,6 +1466,7 @@ const aggregateByComponent = (
           layoutEffectCount: isLayoutEffect ? 1 : 0,
           totalLayoutEffectTime: isLayoutEffect ? effect.duration : 0,
           loafsContributed: 1,
+          renderDurations: [],
           topRenderCauses: [],
           allOptimizationHints: [],
         });
@@ -1501,10 +1555,198 @@ const generateRecommendations = (
   return recommendations.sort((a, b) => a.priority - b.priority);
 };
 
-export const getPerformanceDiagnostic = (): PerformanceDiagnostic => {
+const computePercentile = (
+  sortedValues: number[],
+  percentile: number,
+): number => {
+  if (sortedValues.length === 0) return 0;
+  const index = Math.ceil((percentile / 100) * sortedValues.length) - 1;
+  return sortedValues[Math.max(0, index)];
+};
+
+interface DiagnosticOptions {
+  thresholdMs?: number;
+  rawMode?: boolean;
+}
+
+const aggregateByComponentFromEntries = (
+  entries: ActivityEntry[],
+): Map<string, ComponentStats> => {
+  const stats = new Map<string, ComponentStats>();
+
+  const renderEntries = entries.filter(
+    (entry) => entry.type === ACTIVITY_TYPE_RENDER,
+  );
+  const effectEntries = entries.filter(
+    (entry) => entry.type === ACTIVITY_TYPE_EFFECT,
+  );
+
+  for (const entry of renderEntries) {
+    const component = hydrateComponentIdentity(entry);
+    const key = createComponentIdentityKeyFromComponent(component);
+    const existing = stats.get(key);
+
+    if (existing) {
+      existing.renderCount++;
+      existing.totalRenderTime += entry.selfTime;
+      existing.maxRenderTime = Math.max(existing.maxRenderTime, entry.selfTime);
+      existing.avgRenderTime = existing.totalRenderTime / existing.renderCount;
+      existing.renderDurations.push(entry.selfTime);
+    } else {
+      stats.set(key, {
+        component,
+        renderCount: 1,
+        totalRenderTime: entry.selfTime,
+        avgRenderTime: entry.selfTime,
+        maxRenderTime: entry.selfTime,
+        effectCount: 0,
+        totalEffectTime: 0,
+        avgEffectTime: 0,
+        layoutEffectCount: 0,
+        totalLayoutEffectTime: 0,
+        loafsContributed: 0,
+        renderDurations: [entry.selfTime],
+        topRenderCauses: [],
+        allOptimizationHints: [],
+      });
+    }
+  }
+
+  for (const entry of effectEntries) {
+    const component = hydrateComponentIdentity(entry);
+    const key = createComponentIdentityKeyFromComponent(component);
+    const existing = stats.get(key);
+    const isLayoutEffect = entry.effectType === EFFECT_TYPE_LAYOUT;
+
+    if (existing) {
+      existing.effectCount++;
+      existing.totalEffectTime += entry.selfTime;
+      existing.avgEffectTime = existing.totalEffectTime / existing.effectCount;
+      if (isLayoutEffect) {
+        existing.layoutEffectCount++;
+        existing.totalLayoutEffectTime += entry.selfTime;
+      }
+    } else {
+      stats.set(key, {
+        component,
+        renderCount: 0,
+        totalRenderTime: 0,
+        avgRenderTime: 0,
+        maxRenderTime: 0,
+        effectCount: 1,
+        totalEffectTime: entry.selfTime,
+        avgEffectTime: entry.selfTime,
+        layoutEffectCount: isLayoutEffect ? 1 : 0,
+        totalLayoutEffectTime: isLayoutEffect ? entry.selfTime : 0,
+        loafsContributed: 0,
+        renderDurations: [],
+        topRenderCauses: [],
+        allOptimizationHints: [],
+      });
+    }
+  }
+
+  return stats;
+};
+
+const aggregateUnstableProps = (
+  componentStats: Map<string, ComponentStats>,
+): UnstablePropAggregation[] => {
+  const propToComponents = new Map<string, Set<string>>();
+
+  for (const [componentKey, stats] of componentStats) {
+    const unstableProps = getUnstablePropsForComponent(componentKey);
+    for (const propName of unstableProps) {
+      const normalizedPropName = propName.replace(" (shallow)", "");
+      const existingComponents =
+        propToComponents.get(normalizedPropName) ?? new Set<string>();
+      existingComponents.add(stats.component.displayName);
+      propToComponents.set(normalizedPropName, existingComponents);
+    }
+  }
+
+  return Array.from(propToComponents.entries())
+    .map(([propName, componentNames]) => ({
+      propName,
+      componentCount: componentNames.size,
+      componentNames: Array.from(componentNames).sort(),
+    }))
+    .filter((aggregation) => aggregation.componentCount > 1)
+    .sort(
+      (aggregationA, aggregationB) =>
+        aggregationB.componentCount - aggregationA.componentCount,
+    );
+};
+
+const computeSummaryFromComponentStats = (
+  componentStats: Map<string, ComponentStats>,
+  frames: PerformanceFrame[],
+): PerformanceDiagnosticSummary => {
+  const allRenderDurations: number[] = [];
+  let totalRenders = 0;
+  let totalEffects = 0;
+
+  for (const stats of componentStats.values()) {
+    totalRenders += stats.renderCount;
+    totalEffects += stats.effectCount;
+    allRenderDurations.push(...stats.renderDurations);
+  }
+
+  allRenderDurations.sort((durationA, durationB) => durationA - durationB);
+
+  return {
+    totalLoAFs: frames.length,
+    totalDuration: frames.reduce((sum, frame) => sum + frame.loaf.duration, 0),
+    avgLoAFDuration:
+      frames.length > 0
+        ? frames.reduce((sum, frame) => sum + frame.loaf.duration, 0) /
+          frames.length
+        : 0,
+    maxLoAFDuration:
+      frames.length > 0
+        ? Math.max(...frames.map((frame) => frame.loaf.duration))
+        : 0,
+    totalRenders,
+    totalEffects,
+    totalForcedLayouts: frames.reduce(
+      (sum, frame) =>
+        sum +
+        frame.loaf.scripts.filter(
+          (script) => script.forcedStyleAndLayoutDuration > 0,
+        ).length,
+      0,
+    ),
+    commitCount: totalRenders,
+    p95CommitDurationMs: computePercentile(allRenderDurations, 95),
+    p99CommitDurationMs: computePercentile(allRenderDurations, 99),
+  };
+};
+
+export const getPerformanceDiagnostic = (
+  options: DiagnosticOptions = {},
+): PerformanceDiagnostic => {
+  const { thresholdMs, rawMode = false } = options;
+
+  if (rawMode) {
+    const allActivityEntries = getAllEntries();
+    const componentStats = aggregateByComponentFromEntries(allActivityEntries);
+    const summary = computeSummaryFromComponentStats(componentStats, []);
+    const topUnstableProps = aggregateUnstableProps(componentStats);
+
+    return {
+      timestamp: Date.now(),
+      sessionId: diagnosticSessionId,
+      summary,
+      frames: [],
+      componentStats,
+      recommendations: generateRecommendations(componentStats),
+      topUnstableProps,
+    };
+  }
+
   const frames: PerformanceFrame[] = [];
   const loafsToProcess =
-    recentLoAFs.length > 0 ? recentLoAFs : generateSyntheticLoAFs();
+    recentLoAFs.length > 0 ? recentLoAFs : generateSyntheticLoAFs(thresholdMs);
 
   for (const loaf of loafsToProcess) {
     const windowStart = loaf.startTime;
@@ -1512,41 +1754,24 @@ export const getPerformanceDiagnostic = (): PerformanceDiagnostic => {
 
     const entries = getEntriesInWindow(windowStart, windowEnd);
     const renderEntries = entries.filter(
-      (e) => e.type === ACTIVITY_TYPE_RENDER,
+      (entry) => entry.type === ACTIVITY_TYPE_RENDER,
     );
     const effectEntries = entries.filter(
-      (e) => e.type === ACTIVITY_TYPE_EFFECT,
+      (entry) => entry.type === ACTIVITY_TYPE_EFFECT,
     );
 
     frames.push({
       loaf,
-      renders: renderEntries.map((e) => hydrateRenderEntry(e, loaf)),
-      effects: effectEntries.map((e) => hydrateEffectEntry(e, loaf)),
+      renders: renderEntries.map((entry) => hydrateRenderEntry(entry, loaf)),
+      effects: effectEntries.map((entry) => hydrateEffectEntry(entry, loaf)),
       breakdown: calculateBreakdown(loaf, renderEntries, effectEntries),
       topContributors: findTopContributors(renderEntries, effectEntries),
     });
   }
 
   const componentStats = aggregateByComponent(frames);
-
-  const summary: PerformanceDiagnosticSummary = {
-    totalLoAFs: frames.length,
-    totalDuration: frames.reduce((sum, f) => sum + f.loaf.duration, 0),
-    avgLoAFDuration:
-      frames.length > 0
-        ? frames.reduce((sum, f) => sum + f.loaf.duration, 0) / frames.length
-        : 0,
-    maxLoAFDuration:
-      frames.length > 0 ? Math.max(...frames.map((f) => f.loaf.duration)) : 0,
-    totalRenders: frames.reduce((sum, f) => sum + f.renders.length, 0),
-    totalEffects: frames.reduce((sum, f) => sum + f.effects.length, 0),
-    totalForcedLayouts: frames.reduce(
-      (sum, f) =>
-        sum +
-        f.loaf.scripts.filter((s) => s.forcedStyleAndLayoutDuration > 0).length,
-      0,
-    ),
-  };
+  const summary = computeSummaryFromComponentStats(componentStats, frames);
+  const topUnstableProps = aggregateUnstableProps(componentStats);
 
   return {
     timestamp: Date.now(),
@@ -1555,6 +1780,7 @@ export const getPerformanceDiagnostic = (): PerformanceDiagnostic => {
     frames,
     componentStats,
     recommendations: generateRecommendations(componentStats),
+    topUnstableProps,
   };
 };
 

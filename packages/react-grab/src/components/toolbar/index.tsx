@@ -1644,7 +1644,9 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                         ? "cursor-pointer"
                         : "cursor-default opacity-40",
                     )}
-                    disabled={!props.hasRecordedData || Boolean(props.isRecording)}
+                    disabled={
+                      !props.hasRecordedData || Boolean(props.isRecording)
+                    }
                     on:pointerdown={(event) => {
                       stopEventPropagation(event);
                       handlePointerDown(event);

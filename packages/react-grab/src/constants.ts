@@ -175,7 +175,8 @@ export const RENDER_SCAN_DETAILS_MIN_WIDTH_PX = 220;
 export const RENDER_SCAN_DETAILS_MAX_WIDTH_PX = 260;
 export const RENDER_SCAN_DETAILS_ESTIMATED_HEIGHT_PX = 196;
 export const RENDER_SCAN_DETAILS_VIEWPORT_MARGIN_PX = 8;
-export const RENDER_SCAN_DETAILS_ATTRIBUTE = "data-react-grab-render-scan-details";
+export const RENDER_SCAN_DETAILS_ATTRIBUTE =
+  "data-react-grab-render-scan-details";
 
 export const IGNORE_EVENTS_ATTRIBUTE = "data-react-grab-ignore-events";
 
